@@ -1,0 +1,24 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+.idea/
+
+# Test audio artifacts
+*.mp3
+*.wav
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
