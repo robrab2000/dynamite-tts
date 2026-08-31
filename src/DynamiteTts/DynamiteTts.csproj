@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="3.0.1" />
+    <PackageReference Include="KokoroSharp.DirectML" Version="0.8.4" />
   </ItemGroup>
 
 </Project>

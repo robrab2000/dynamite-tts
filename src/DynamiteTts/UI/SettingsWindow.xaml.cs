@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using DynamiteTts.Models;
@@ -16,6 +17,7 @@ public partial class SettingsWindow : Window
     private readonly AppSettingsStore _settingsStore;
     private readonly LemonadeTtsClient _ttsClient;
     private readonly HotkeyService _hotkeyService;
+    private readonly DirectMlDeviceService _directMlDeviceService;
     private readonly AudioDeviceService _audioDeviceService;
     private readonly StartupRegistrationService _startupService;
     private readonly LemonadeDependencyService _dependencyService;
@@ -28,6 +30,7 @@ public partial class SettingsWindow : Window
         AppSettingsStore settingsStore,
         LemonadeTtsClient ttsClient,
         HotkeyService hotkeyService,
+        DirectMlDeviceService directMlDeviceService,
         AudioDeviceService audioDeviceService,
         StartupRegistrationService startupService,
         LemonadeDependencyService dependencyService,
@@ -39,6 +42,7 @@ public partial class SettingsWindow : Window
         _settingsStore = settingsStore;
         _ttsClient = ttsClient;
         _hotkeyService = hotkeyService;
+        _directMlDeviceService = directMlDeviceService;
         _audioDeviceService = audioDeviceService;
         _startupService = startupService;
         _dependencyService = dependencyService;
@@ -88,6 +92,7 @@ public partial class SettingsWindow : Window
     {
         PopulateVoices();
         RefreshAudioDevices();
+        RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
         await RefreshModelsAsync();
         await CheckConnectionAsync();
@@ -97,6 +102,7 @@ public partial class SettingsWindow : Window
     {
         PopulateVoices();
         RefreshAudioDevices();
+        RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
         Show();
         if (WindowState == WindowState.Minimized)
@@ -125,19 +131,67 @@ public partial class SettingsWindow : Window
         VoiceComboBox.Items.Clear();
         foreach (var preset in VoicePreset.Presets)
         {
-            VoiceComboBox.Items.Add(preset.Id);
+            VoiceComboBox.Items.Add(new ComboBoxItem
+            {
+                Content = preset.DisplayName,
+                Tag = preset.Id
+            });
         }
 
-        VoiceComboBox.Text = !string.IsNullOrEmpty(currentVoice) ? currentVoice : "coral";
-        VoiceComboBox.SelectedItem = VoiceComboBox.Text;
+        var matchingItem = VoiceComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag?.ToString(), currentVoice, StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(i.Content?.ToString(), currentVoice, StringComparison.OrdinalIgnoreCase));
+
+        if (matchingItem != null)
+        {
+            VoiceComboBox.SelectedItem = matchingItem;
+        }
+        else
+        {
+            VoiceComboBox.Text = currentVoice;
+        }
+    }
+
+    private void RefreshDirectMlDevices()
+    {
+        var devices = _directMlDeviceService.GetAvailableDevices();
+        DirectMlDeviceComboBox.ItemsSource = devices;
+        DirectMlDeviceComboBox.DisplayMemberPath = "Name";
+        DirectMlDeviceComboBox.SelectedValuePath = "DeviceId";
+
+        var currentDeviceId = _settingsStore.Current.DirectMlDeviceId;
+        var selected = devices.FirstOrDefault(d =>
+                            d.DeviceId == currentDeviceId &&
+                            d.Kind != DirectMlDeviceKind.NpuUnavailable)
+                        ?? PreferFastestGpu(devices)
+                        ?? devices.FirstOrDefault(d => d.Kind != DirectMlDeviceKind.NpuUnavailable);
+
+        if (selected != null)
+        {
+            DirectMlDeviceComboBox.SelectedItem = selected;
+        }
+    }
+
+    private static DirectMlDeviceInfo? PreferFastestGpu(IReadOnlyList<DirectMlDeviceInfo> devices)
+    {
+        return devices.FirstOrDefault(d =>
+                   d.Kind == DirectMlDeviceKind.Gpu &&
+                   (d.Description.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                    d.Description.Contains("GeForce", StringComparison.OrdinalIgnoreCase) ||
+                    d.Description.Contains("RTX", StringComparison.OrdinalIgnoreCase)))
+               ?? devices.FirstOrDefault(d =>
+                   d.Kind == DirectMlDeviceKind.Gpu &&
+                   (d.Description.Contains("AMD", StringComparison.OrdinalIgnoreCase) ||
+                    d.Description.Contains("Radeon", StringComparison.OrdinalIgnoreCase)));
     }
 
     private void RefreshAudioDevices()
     {
         var devices = _audioDeviceService.GetOutputDevices();
         AudioDeviceComboBox.ItemsSource = devices;
-        AudioDeviceComboBox.DisplayMemberPath = nameof(AudioDeviceInfo.Name);
-        AudioDeviceComboBox.SelectedValuePath = nameof(AudioDeviceInfo.Id);
+        AudioDeviceComboBox.DisplayMemberPath = "Name";
+        AudioDeviceComboBox.SelectedValuePath = "Id";
 
         var currentDeviceId = _settingsStore.Current.AudioDeviceId;
         var selected = devices.FirstOrDefault(d => d.Id == currentDeviceId) ?? devices.FirstOrDefault();
@@ -149,6 +203,42 @@ public partial class SettingsWindow : Window
 
     private void PopulateFromSettings(AppSettings settings)
     {
+        // Engine selection
+        var isDirectMl = string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase);
+        foreach (ComboBoxItem item in EngineComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), settings.EngineMode, StringComparison.OrdinalIgnoreCase))
+            {
+                EngineComboBox.SelectedItem = item;
+                break;
+            }
+        }
+        UpdateEnginePanelsVisibility(isDirectMl);
+
+        // Precision selection
+        foreach (ComboBoxItem item in DirectMlPrecisionComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), settings.DirectMlModelPrecision, StringComparison.OrdinalIgnoreCase))
+            {
+                DirectMlPrecisionComboBox.SelectedItem = item;
+                break;
+            }
+        }
+
+        // DirectML Device selection
+        if (DirectMlDeviceComboBox.ItemsSource is System.Collections.Generic.IEnumerable<DirectMlDeviceInfo> dmlDevices)
+        {
+            var match = dmlDevices.FirstOrDefault(d =>
+                            d.DeviceId == settings.DirectMlDeviceId &&
+                            d.Kind != DirectMlDeviceKind.NpuUnavailable)
+                        ?? PreferFastestGpu(dmlDevices.ToList())
+                        ?? dmlDevices.FirstOrDefault(d => d.Kind != DirectMlDeviceKind.NpuUnavailable);
+            if (match != null)
+            {
+                DirectMlDeviceComboBox.SelectedItem = match;
+            }
+        }
+
         EndpointTextBox.Text = settings.SpeechEndpoint;
         ModelComboBox.Text = settings.Model;
         ModelComboBox.SelectedItem = settings.Model;
@@ -172,6 +262,99 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void OnEngineSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (EngineComboBox?.SelectedItem is ComboBoxItem selectedItem)
+        {
+            var isDirectMl = string.Equals(selectedItem.Tag?.ToString(), "DirectML", StringComparison.OrdinalIgnoreCase);
+            UpdateEnginePanelsVisibility(isDirectMl);
+        }
+    }
+
+    private void OnDirectMlDeviceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DirectMlDeviceComboBox?.SelectedItem is not DirectMlDeviceInfo deviceInfo)
+            return;
+
+        if (DirectMlStatusTitle == null || DirectMlStatusDetails == null || DirectMlStatusDot == null)
+            return;
+
+        if (deviceInfo.Kind == DirectMlDeviceKind.NpuUnavailable)
+        {
+            DirectMlStatusTitle.Text = "AMD Ryzen AI NPU unavailable for Kokoro TTS";
+            DirectMlStatusTitle.Foreground = (Brush)FindResource("AccentBrush");
+            DirectMlStatusDot.Fill = (Brush)FindResource("AccentBrush");
+            DirectMlStatusDetails.Text = DirectMlDeviceService.NpuUnavailableReason +
+                " Watch GPU 0/1 Compute in Task Manager when testing speech.";
+
+            // Snap selection back to a usable GPU (prefer AMD iGPU if present)
+            var devices = _directMlDeviceService.GetAvailableDevices();
+            var amdGpu = devices.FirstOrDefault(d =>
+                d.Kind == DirectMlDeviceKind.Gpu &&
+                (d.Description.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
+                 d.Description.Contains("RTX", StringComparison.OrdinalIgnoreCase)))
+                ?? devices.FirstOrDefault(d =>
+                d.Kind == DirectMlDeviceKind.Gpu &&
+                d.Description.Contains("AMD", StringComparison.OrdinalIgnoreCase));
+            var fallback = amdGpu
+                ?? devices.FirstOrDefault(d => d.Kind == DirectMlDeviceKind.Gpu)
+                ?? devices.FirstOrDefault(d => d.Kind == DirectMlDeviceKind.Auto);
+
+            if (fallback != null)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    MessageBox.Show(this,
+                        DirectMlDeviceService.NpuUnavailableReason +
+                        "\n\nSwitching you to: " + fallback.Name,
+                        "NPU not available for TTS",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    DirectMlDeviceComboBox.SelectedItem = fallback;
+                });
+            }
+
+            return;
+        }
+
+        if (deviceInfo.Kind == DirectMlDeviceKind.Auto || deviceInfo.DeviceId == -1)
+        {
+            DirectMlStatusTitle.Text = "DirectML GPU acceleration (Auto → fastest GPU)";
+            DirectMlStatusTitle.Foreground = (Brush)FindResource("SuccessBrush");
+            DirectMlStatusDot.Fill = (Brush)FindResource("SuccessBrush");
+            DirectMlStatusDetails.Text =
+                "Prefers your NVIDIA RTX when present. Audio now streams segment-by-segment so speech starts sooner. Watch that GPU's Compute graph — not the NPU.";
+            return;
+        }
+
+        DirectMlStatusTitle.Text = $"DirectML GPU: {deviceInfo.Description}";
+        DirectMlStatusTitle.Foreground = (Brush)FindResource("SuccessBrush");
+        DirectMlStatusDot.Fill = (Brush)FindResource("SuccessBrush");
+        DirectMlStatusDetails.Text =
+            $"Kokoro streams short segments on DXGI adapter {deviceInfo.DeviceId} for lower latency. Watch that GPU's Compute engine in Task Manager.";
+    }
+
+    private void OnRefreshAdaptersClick(object sender, RoutedEventArgs e)
+    {
+        RefreshDirectMlDevices();
+    }
+
+    private void UpdateEnginePanelsVisibility(bool isDirectMl)
+    {
+        if (DirectMlInfoPanel != null)
+        {
+            DirectMlInfoPanel.Visibility = isDirectMl ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (LemonadeServerPanel != null)
+        {
+            LemonadeServerPanel.Visibility = isDirectMl ? Visibility.Collapsed : Visibility.Visible;
+        }
+        if (ModelSelectionContainer != null)
+        {
+            ModelSelectionContainer.Visibility = isDirectMl ? Visibility.Collapsed : Visibility.Visible;
+        }
+    }
+
     private AppSettings GetCurrentSettingsFromUi()
     {
         var endpoint = EndpointTextBox.Text.Trim();
@@ -182,12 +365,23 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(model))
             model = _settingsStore.Current.Model;
 
-        var voice = VoiceComboBox.Text.Trim();
+        var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
+        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(voice))
             voice = _settingsStore.Current.Voice;
 
         var selectedDevice = AudioDeviceComboBox.SelectedItem as AudioDeviceInfo;
         var audioDeviceId = selectedDevice?.Id ?? _settingsStore.Current.AudioDeviceId;
+
+        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
+
+        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as DirectMlDeviceInfo;
+        var dmlDeviceId = selectedDmlDevice?.DeviceId ?? _settingsStore.Current.DirectMlDeviceId;
+        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == DirectMlDeviceKind.NpuUnavailable)
+            dmlDeviceId = -1;
+
+        var selectedPrecisionItem = DirectMlPrecisionComboBox.SelectedItem as ComboBoxItem;
+        var precision = selectedPrecisionItem?.Tag?.ToString() ?? _settingsStore.Current.DirectMlModelPrecision;
 
         return new AppSettings
         {
@@ -199,7 +393,11 @@ public partial class SettingsWindow : Window
             Hotkey = HotkeyCaptureControl.Hotkey ?? _settingsStore.Current.Hotkey,
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
-            RunAtStartup = LaunchAtStartupCheckBox.IsChecked == true
+            RunAtStartup = LaunchAtStartupCheckBox.IsChecked == true,
+            EngineMode = selectedEngine,
+            UseDirectMlAcceleration = true,
+            DirectMlDeviceId = dmlDeviceId,
+            DirectMlModelPrecision = precision
         };
     }
 
@@ -362,14 +560,15 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var voice = VoiceComboBox.Text.Trim();
+        var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
+        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(voice))
-            voice = "coral";
+            voice = "af_heart";
 
         var settings = GetCurrentSettingsFromUi();
         settings.Voice = voice;
 
-        await _orchestrator.SpeakTextAsync($"Hello! This is a preview of the {voice} voice on Lemonade Server.", settings);
+        await _orchestrator.SpeakTextAsync($"Hello! This is a preview of the {voice} voice with DirectML hardware acceleration.", settings);
     }
 
     private async void OnTestSpeechClick(object sender, RoutedEventArgs e)
@@ -394,8 +593,11 @@ public partial class SettingsWindow : Window
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
+        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
+        var isDirectMl = string.Equals(selectedEngine, "DirectML", StringComparison.OrdinalIgnoreCase);
+
         var endpoint = EndpointTextBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(endpoint))
+        if (!isDirectMl && string.IsNullOrWhiteSpace(endpoint))
         {
             MessageBox.Show(this, "Please enter a valid Lemonade Server endpoint URL.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             EndpointTextBox.Focus();
@@ -405,15 +607,14 @@ public partial class SettingsWindow : Window
         var model = ModelComboBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(model))
         {
-            MessageBox.Show(this, "Please specify a TTS model name (e.g. kokoro-v1).", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            ModelComboBox.Focus();
-            return;
+            model = "kokoro-v1";
         }
 
-        var voice = VoiceComboBox.Text.Trim();
+        var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
+        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(voice))
         {
-            voice = "coral";
+            voice = "af_heart";
         }
 
         var newHotkey = HotkeyCaptureControl.Hotkey ?? HotkeyConfig.Default;
@@ -425,6 +626,14 @@ public partial class SettingsWindow : Window
 
         var selectedDevice = AudioDeviceComboBox.SelectedItem as AudioDeviceInfo;
         var audioDeviceId = selectedDevice?.Id ?? string.Empty;
+
+        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as DirectMlDeviceInfo;
+        var dmlDeviceId = selectedDmlDevice?.DeviceId ?? -1;
+        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == DirectMlDeviceKind.NpuUnavailable)
+            dmlDeviceId = -1;
+
+        var selectedPrecisionItem = DirectMlPrecisionComboBox.SelectedItem as ComboBoxItem;
+        var precision = selectedPrecisionItem?.Tag?.ToString() ?? "float16";
 
         var isStartup = LaunchAtStartupCheckBox.IsChecked == true;
         _startupService.SetStartupEnabled(isStartup);
@@ -439,7 +648,11 @@ public partial class SettingsWindow : Window
             Hotkey = newHotkey,
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
-            RunAtStartup = isStartup
+            RunAtStartup = isStartup,
+            EngineMode = selectedEngine,
+            UseDirectMlAcceleration = true,
+            DirectMlDeviceId = dmlDeviceId,
+            DirectMlModelPrecision = precision
         };
 
         _settingsStore.Save(newSettings);
@@ -459,19 +672,21 @@ public partial class SettingsWindow : Window
         {
             e.Cancel = true;
             _orchestrator.Stop();
-            PopulateFromSettings(_settingsStore.Current);
             Hide();
         }
     }
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && !HotkeyCaptureControl.IsFocused)
+        if (e.Key == Key.Escape)
         {
-            e.Handled = true;
-            _orchestrator.Stop();
-            PopulateFromSettings(_settingsStore.Current);
-            Hide();
+            if (!HotkeyCaptureControl.IsCapturing)
+            {
+                _orchestrator.Stop();
+                PopulateFromSettings(_settingsStore.Current);
+                Hide();
+                e.Handled = true;
+            }
         }
     }
 }

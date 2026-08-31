@@ -14,6 +14,10 @@ public class AppSettings
     public string AudioDeviceId { get; set; } = string.Empty; // Empty string = System Default Device
     public bool RunAtStartup { get; set; } = false;
     public bool PlaySoundOnStop { get; set; } = true;
+    public string EngineMode { get; set; } = "DirectML"; // "DirectML" or "LemonadeServer"
+    public bool UseDirectMlAcceleration { get; set; } = true;
+    public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto, 0, 1, 2...
+    public string DirectMlModelPrecision { get; set; } = "float16"; // "float16" or "float32"
 
     public AppSettings Clone()
     {
@@ -31,7 +35,11 @@ public class AppSettings
             },
             AudioDeviceId = AudioDeviceId,
             RunAtStartup = RunAtStartup,
-            PlaySoundOnStop = PlaySoundOnStop
+            PlaySoundOnStop = PlaySoundOnStop,
+            EngineMode = EngineMode,
+            UseDirectMlAcceleration = UseDirectMlAcceleration,
+            DirectMlDeviceId = DirectMlDeviceId,
+            DirectMlModelPrecision = DirectMlModelPrecision
         };
     }
 }

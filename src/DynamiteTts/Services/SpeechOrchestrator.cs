@@ -12,6 +12,7 @@ public class SpeechOrchestrator : IDisposable
     private readonly AppSettingsStore _settingsStore;
     private readonly ClipboardSelectionService _clipboardService;
     private readonly LemonadeTtsClient _ttsClient;
+    private readonly LocalTtsService _localTtsService;
     private readonly AudioPlaybackService _audioService;
     private readonly TrayIconHost _trayHost;
     private readonly TrayNotificationService _notificationService;
@@ -40,6 +41,7 @@ public class SpeechOrchestrator : IDisposable
         AppSettingsStore settingsStore,
         ClipboardSelectionService clipboardService,
         LemonadeTtsClient ttsClient,
+        LocalTtsService localTtsService,
         AudioPlaybackService audioService,
         TrayIconHost trayHost,
         TrayNotificationService notificationService)
@@ -47,6 +49,7 @@ public class SpeechOrchestrator : IDisposable
         _settingsStore = settingsStore;
         _clipboardService = clipboardService;
         _ttsClient = ttsClient;
+        _localTtsService = localTtsService;
         _audioService = audioService;
         _trayHost = trayHost;
         _notificationService = notificationService;
@@ -182,33 +185,31 @@ public class SpeechOrchestrator : IDisposable
         string voice,
         CancellationToken ct)
     {
+        if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await ExecuteLocalStreamingPipelineAsync(chunks, settings, voice, ct);
+                return;
+            }
+            catch when (!ct.IsCancellationRequested)
+            {
+                // Fall through to Lemonade HTTP path
+            }
+        }
+
         if (chunks.Count == 1)
         {
             UpdateState(TrayIconState.Synthesizing);
-            var audioData = await _ttsClient.GenerateSpeechAsync(
-                settings.SpeechEndpoint,
-                chunks[0],
-                settings.Model,
-                voice,
-                settings.Speed,
-                settings.ResponseFormat,
-                ct);
+            var audioData = await GenerateChunkAudioAsync(settings, chunks[0], voice, ct);
 
             UpdateState(TrayIconState.Speaking);
             await _audioService.PlayAsync(audioData, settings.AudioDeviceId, ct);
             return;
         }
 
-        // Multiple chunks with lookahead pre-fetching
         UpdateState(TrayIconState.Synthesizing);
-        var nextFetchTask = _ttsClient.GenerateSpeechAsync(
-            settings.SpeechEndpoint,
-            chunks[0],
-            settings.Model,
-            voice,
-            settings.Speed,
-            settings.ResponseFormat,
-            ct);
+        var nextFetchTask = GenerateChunkAudioAsync(settings, chunks[0], voice, ct);
 
         for (int i = 0; i < chunks.Count; i++)
         {
@@ -216,22 +217,95 @@ public class SpeechOrchestrator : IDisposable
 
             var currentAudio = await nextFetchTask;
 
-            // Start pre-fetching the next chunk ahead of time
             if (i + 1 < chunks.Count)
             {
                 var nextIndex = i + 1;
-                nextFetchTask = _ttsClient.GenerateSpeechAsync(
+                nextFetchTask = GenerateChunkAudioAsync(settings, chunks[nextIndex], voice, ct);
+            }
+
+            UpdateState(TrayIconState.Speaking);
+            await _audioService.PlayAsync(currentAudio, settings.AudioDeviceId, ct);
+        }
+    }
+
+    private async Task ExecuteLocalStreamingPipelineAsync(
+        IReadOnlyList<string> chunks,
+        AppSettings settings,
+        string voice,
+        CancellationToken ct)
+    {
+        UpdateState(TrayIconState.Synthesizing);
+        var startedSpeaking = false;
+
+        foreach (var chunk in chunks)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            await _localTtsService.GenerateSpeechStreamingAsync(
+                chunk,
+                voice,
+                settings.Speed,
+                settings.DirectMlDeviceId,
+                settings.DirectMlModelPrecision,
+                onSegmentAsync: async samples =>
+                {
+                    if (!startedSpeaking)
+                    {
+                        startedSpeaking = true;
+                        UpdateState(TrayIconState.Speaking);
+                    }
+
+                    await _audioService.PlayRawMonoFloatAsync(
+                        samples,
+                        sampleRate: 24000,
+                        settings.AudioDeviceId,
+                        ct);
+                },
+                ct);
+        }
+    }
+
+    private async Task<byte[]> GenerateChunkAudioAsync(
+        AppSettings settings,
+        string chunk,
+        string voice,
+        CancellationToken ct)
+    {
+        if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                return await _localTtsService.GenerateSpeechWavAsync(
+                    chunk,
+                    voice,
+                    settings.Speed,
+                    settings.DirectMlDeviceId,
+                    settings.DirectMlModelPrecision,
+                    ct);
+            }
+            catch when (!ct.IsCancellationRequested)
+            {
+                // Fallback to Lemonade Server if local engine encountered an issue
+                return await _ttsClient.GenerateSpeechAsync(
                     settings.SpeechEndpoint,
-                    chunks[nextIndex],
+                    chunk,
                     settings.Model,
                     voice,
                     settings.Speed,
                     settings.ResponseFormat,
                     ct);
             }
-
-            UpdateState(TrayIconState.Speaking);
-            await _audioService.PlayAsync(currentAudio, settings.AudioDeviceId, ct);
+        }
+        else
+        {
+            return await _ttsClient.GenerateSpeechAsync(
+                settings.SpeechEndpoint,
+                chunk,
+                settings.Model,
+                voice,
+                settings.Speed,
+                settings.ResponseFormat,
+                ct);
         }
     }
 
@@ -255,6 +329,7 @@ public class SpeechOrchestrator : IDisposable
         _isDisposed = true;
         Stop();
         _ttsClient.Dispose();
+        _localTtsService.Dispose();
         _audioService.Dispose();
     }
 }

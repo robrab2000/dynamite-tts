@@ -91,31 +91,68 @@ public class AudioPlaybackService : IDisposable
         }
     }
 
-    public async Task PlayAsync(byte[] audioData, string? targetDeviceId, CancellationToken cancellationToken)
+    public Task PlayAsync(byte[] audioData, string? targetDeviceId, CancellationToken cancellationToken)
     {
-        if (audioData == null || audioData.Length == 0) return;
+        if (audioData == null || audioData.Length == 0)
+            return Task.CompletedTask;
 
         cancellationToken.ThrowIfCancellationRequested();
-
-        // Ensure output engine is warm & ready
         EnsureInitialized(targetDeviceId);
 
-        using var ms = new MemoryStream(audioData);
         WaveStream reader;
-
         try
         {
-            reader = CreateWaveStream(ms);
+            reader = CreateWaveStream(new MemoryStream(audioData));
         }
         catch (Exception ex)
         {
             throw new InvalidOperationException("Failed to decode the received audio payload.", ex);
         }
 
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         ISampleProvider inputSampleProvider = reader.ToSampleProvider();
+        return PlaySampleProviderAsync(inputSampleProvider, targetDeviceId, () => reader.Dispose(), cancellationToken);
+    }
 
-        // Resample and match channels to mixer format if needed
+    /// <summary>
+    /// Plays raw mono IEEE-float PCM (e.g. Kokoro 24 kHz) through the warm mixer.
+    /// Used for streamed local synthesis so audio can start before the full utterance finishes.
+    /// </summary>
+    public Task PlayRawMonoFloatAsync(
+        float[] samples,
+        int sampleRate,
+        string? targetDeviceId,
+        CancellationToken cancellationToken)
+    {
+        if (samples == null || samples.Length == 0)
+            return Task.CompletedTask;
+
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureInitialized(targetDeviceId);
+
+        var sourceFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
+        ISampleProvider provider = new MemorySampleProvider(samples, sourceFormat);
+
+        if (provider.WaveFormat.SampleRate != _mixerFormat.SampleRate)
+        {
+            provider = new WdlResamplingSampleProvider(provider, _mixerFormat.SampleRate);
+        }
+
+        if (provider.WaveFormat.Channels == 1 && _mixerFormat.Channels == 2)
+        {
+            provider = new MonoToStereoSampleProvider(provider);
+        }
+
+        return PlaySampleProviderAsync(provider, targetDeviceId, onCompletedExtra: null, cancellationToken);
+    }
+
+    private async Task PlaySampleProviderAsync(
+        ISampleProvider inputSampleProvider,
+        string? targetDeviceId,
+        Action? onCompletedExtra,
+        CancellationToken cancellationToken)
+    {
+        EnsureInitialized(targetDeviceId);
+
         if (inputSampleProvider.WaveFormat.SampleRate != _mixerFormat.SampleRate)
         {
             inputSampleProvider = new WdlResamplingSampleProvider(inputSampleProvider, _mixerFormat.SampleRate);
@@ -126,13 +163,14 @@ public class AudioPlaybackService : IDisposable
             inputSampleProvider = new MonoToStereoSampleProvider(inputSampleProvider);
         }
 
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var trackingProvider = new CompletionTrackingSampleProvider(inputSampleProvider, () =>
         {
             lock (_lock)
             {
                 _currentActiveCount = Math.Max(0, _currentActiveCount - 1);
             }
-            reader.Dispose();
+            onCompletedExtra?.Invoke();
             tcs.TrySetResult();
         });
 
@@ -140,7 +178,7 @@ public class AudioPlaybackService : IDisposable
         {
             if (cancellationToken.IsCancellationRequested || _mixer == null)
             {
-                reader.Dispose();
+                onCompletedExtra?.Invoke();
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
@@ -155,7 +193,7 @@ public class AudioPlaybackService : IDisposable
                 _mixer?.RemoveMixerInput(trackingProvider);
                 _currentActiveCount = Math.Max(0, _currentActiveCount - 1);
             }
-            reader.Dispose();
+            onCompletedExtra?.Invoke();
             tcs.TrySetCanceled(cancellationToken);
         }))
         {

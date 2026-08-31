@@ -35,8 +35,13 @@ public class SpeechOrchestratorTests : IDisposable
     public async Task SpeakTextAsync_CallsClientAndAudioService()
     {
         var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var initialSettings = settingsStore.Current;
+        initialSettings.EngineMode = "LemonadeServer";
+        settingsStore.Save(initialSettings);
+
         var clipboardService = new ClipboardSelectionService();
         var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
 
         var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
         
@@ -57,6 +62,7 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            localTtsService,
             audioService,
             trayHost,
             notificationService);
@@ -78,6 +84,7 @@ public class SpeechOrchestratorTests : IDisposable
         var settingsStore = new AppSettingsStore(_tempSettingsPath);
         var clipboardService = new ClipboardSelectionService();
         var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
 
         var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
         
@@ -117,12 +124,14 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            localTtsService,
             audioService,
             trayHost,
             notificationService);
 
         var customSettings = new AppSettings
         {
+            EngineMode = "LemonadeServer",
             Speed = 1.75,
             Voice = "fenrir"
         };
@@ -140,6 +149,7 @@ public class SpeechOrchestratorTests : IDisposable
         var clipboardService = new ClipboardSelectionService();
         var audioService = new AudioPlaybackService();
         using var ttsClient = new LemonadeTtsClient();
+        using var localTtsService = new LocalTtsService();
         using var trayHost = new TrayIconHost();
         var notificationService = new TrayNotificationService(trayHost);
 
@@ -147,6 +157,7 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            localTtsService,
             audioService,
             trayHost,
             notificationService);

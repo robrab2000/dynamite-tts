@@ -16,6 +16,12 @@ artifacts/
 *.mp3
 *.wav
 
+# Large ONNX / voice model downloads (experiment + local caches)
+*.onnx
+*.bin
+experiments/models/
+!experiments/**/*.md
+
 # OS files
 Thumbs.db
 ehthumbs.db

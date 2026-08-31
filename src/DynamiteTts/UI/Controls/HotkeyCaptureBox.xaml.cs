@@ -21,6 +21,8 @@ public partial class HotkeyCaptureBox : UserControl
 
     private bool _isListening;
 
+    public bool IsCapturing => _isListening;
+
     public HotkeyConfig Hotkey
     {
         get => (HotkeyConfig)GetValue(HotkeyProperty);

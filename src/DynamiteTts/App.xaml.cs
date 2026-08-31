@@ -17,6 +17,8 @@ public partial class App : Application
     private TrayIconHost? _trayHost;
     private TrayNotificationService? _notificationService;
     private LemonadeTtsClient? _ttsClient;
+    private LocalTtsService? _localTtsService;
+    private DirectMlDeviceService? _directMlDeviceService;
     private AudioDeviceService? _audioDeviceService;
     private AudioPlaybackService? _audioPlaybackService;
     private ClipboardSelectionService? _clipboardService;
@@ -72,6 +74,8 @@ public partial class App : Application
         _trayHost = new TrayIconHost();
         _notificationService = new TrayNotificationService(_trayHost);
         _ttsClient = new LemonadeTtsClient();
+        _localTtsService = new LocalTtsService();
+        _directMlDeviceService = new DirectMlDeviceService();
         _audioDeviceService = new AudioDeviceService();
         _audioPlaybackService = new AudioPlaybackService();
         _clipboardService = new ClipboardSelectionService();
@@ -82,6 +86,7 @@ public partial class App : Application
             _settingsStore,
             _clipboardService,
             _ttsClient,
+            _localTtsService,
             _audioPlaybackService,
             _trayHost,
             _notificationService);
@@ -110,6 +115,7 @@ public partial class App : Application
             _settingsStore,
             _ttsClient,
             _hotkeyService,
+            _directMlDeviceService,
             _audioDeviceService,
             _startupService,
             _dependencyService,
@@ -129,8 +135,18 @@ public partial class App : Application
             try
             {
                 _audioPlaybackService.WarmUp(settings.AudioDeviceId);
-                await Task.Delay(500);
-                await _ttsClient.PrewarmAsync(settings.SpeechEndpoint, settings.Model, settings.Voice);
+                if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _localTtsService.InitializeAsync(
+                        useDirectMl: settings.UseDirectMlAcceleration,
+                        deviceId: settings.DirectMlDeviceId,
+                        precision: settings.DirectMlModelPrecision);
+                }
+                else
+                {
+                    await Task.Delay(500);
+                    await _ttsClient.PrewarmAsync(settings.SpeechEndpoint, settings.Model, settings.Voice);
+                }
             }
             catch { }
         });
@@ -183,6 +199,7 @@ public partial class App : Application
             _settingsWindow?.ShutdownWindow();
             _hotkeyService?.Dispose();
             _orchestrator?.Dispose();
+            _localTtsService?.Dispose();
             _trayHost?.Dispose();
         }
         catch { }
