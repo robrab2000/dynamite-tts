@@ -2,6 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using DynamiteTts.Models;
 using DynamiteTts.Native;
 using DynamiteTts.Services;
 using DynamiteTts.UI;
@@ -17,6 +18,9 @@ public partial class App : Application
     private TrayIconHost? _trayHost;
     private TrayNotificationService? _notificationService;
     private LemonadeTtsClient? _ttsClient;
+    private LocalTtsService? _localTtsService;
+    private CudaDeviceService? _deviceService;
+    private LocalEngineState _lastNotifiedEngineState = LocalEngineState.NotInitialized;
     private AudioDeviceService? _audioDeviceService;
     private AudioPlaybackService? _audioPlaybackService;
     private ClipboardSelectionService? _clipboardService;
@@ -25,10 +29,15 @@ public partial class App : Application
     private SpeechOrchestrator? _orchestrator;
     private HotkeyService? _hotkeyService;
     private SettingsWindow? _settingsWindow;
+    private StatusBubbleWindow? _statusBubble;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // Launched at login the working directory is System32. KokoroSharp (voices) and the model
+        // lookup resolve files relative to it, so anchor it to the executable's folder.
+        try { System.IO.Directory.SetCurrentDirectory(AppContext.BaseDirectory); } catch { }
 
         // 1. Single Instance Check
         bool createdNew;
@@ -68,10 +77,14 @@ public partial class App : Application
     private void InitializeApplication()
     {
         // 2. Services Initialization
+        AppLog.Info($"Dynamite TTS starting (pid {Environment.ProcessId})");
         _settingsStore = new AppSettingsStore();
         _trayHost = new TrayIconHost();
         _notificationService = new TrayNotificationService(_trayHost);
         _ttsClient = new LemonadeTtsClient();
+        _localTtsService = new LocalTtsService();
+        _deviceService = new CudaDeviceService();
+        _localTtsService.StatusChanged += OnLocalEngineStatusChanged;
         _audioDeviceService = new AudioDeviceService();
         _audioPlaybackService = new AudioPlaybackService();
         _clipboardService = new ClipboardSelectionService();
@@ -82,9 +95,23 @@ public partial class App : Application
             _settingsStore,
             _clipboardService,
             _ttsClient,
+            _localTtsService,
             _audioPlaybackService,
             _trayHost,
             _notificationService);
+
+        // Handy-style status pill at the top of the screen while capturing, synthesizing and speaking.
+        _statusBubble = new StatusBubbleWindow(() => _audioPlaybackService?.OutputLevel ?? 0f);
+        _statusBubble.StopRequested += () => _orchestrator?.Stop();
+        _orchestrator.StateChanged += state => Dispatcher.BeginInvoke(() =>
+        {
+            if (_settingsStore?.Current.ShowStatusBubble != false) _statusBubble?.ShowState(state);
+            else if (state == TrayIconState.Idle) _statusBubble?.ShowState(state);
+        });
+        _orchestrator.Notice += message => Dispatcher.BeginInvoke(() =>
+        {
+            if (_settingsStore?.Current.ShowStatusBubble != false) _statusBubble?.ShowNotice(message);
+        });
 
         _hotkeyService = new HotkeyService(_trayHost.Handle);
         _hotkeyService.HotkeyConflictOccurred += msg =>
@@ -110,6 +137,7 @@ public partial class App : Application
             _settingsStore,
             _ttsClient,
             _hotkeyService,
+            _deviceService,
             _audioDeviceService,
             _startupService,
             _dependencyService,
@@ -129,10 +157,64 @@ public partial class App : Application
             try
             {
                 _audioPlaybackService.WarmUp(settings.AudioDeviceId);
-                await Task.Delay(500);
-                await _ttsClient.PrewarmAsync(settings.SpeechEndpoint, settings.Model, settings.Voice);
+                if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+                {
+                    _localTtsService.GpuIdleTimeout = TimeSpan.FromMinutes(Math.Max(1, settings.GpuIdleUnloadMinutes));
+                    await _localTtsService.InitializeAsync(
+                        useGpu: settings.UseDirectMlAcceleration,
+                        deviceId: settings.DirectMlDeviceId,
+                        precision: settings.DirectMlModelPrecision);
+                }
+                else
+                {
+                    await Task.Delay(500);
+                    await _ttsClient.PrewarmAsync(settings.SpeechEndpoint, settings.Model, settings.Voice);
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // Previously swallowed silently, leaving the engine stuck on "Loading" with no trace.
+                AppLog.Error("Startup pre-warm failed", ex);
+            }
+        });
+    }
+
+    /// <summary>Tray balloons for the one-off CUDA runtime download so a silent 1 GB download is never a surprise.</summary>
+    private void OnLocalEngineStatusChanged(string description)
+    {
+        var engine = _localTtsService;
+        if (engine == null || _notificationService == null) return;
+
+        var state = engine.State;
+        if (state == _lastNotifiedEngineState) return;
+        var previous = _lastNotifiedEngineState;
+        _lastNotifiedEngineState = state;
+
+        string? title = null, message = null;
+        var warning = false;
+        switch (state)
+        {
+            case LocalEngineState.GpuRuntimeDownloading:
+                title = "Downloading GPU acceleration";
+                message = $"Fetching the NVIDIA CUDA runtime ({CudaRuntimeService.TotalDownloadBytes / 1_000_000} MB) for {engine.GpuName}. Speech keeps working on the CPU meanwhile.";
+                break;
+            case LocalEngineState.GpuIdle when previous == LocalEngineState.GpuRuntimeDownloading:
+                title = "GPU acceleration ready";
+                message = $"{engine.GpuName} will be used for speech from now on.";
+                break;
+            case LocalEngineState.GpuRuntimeUnavailable:
+            case LocalEngineState.GpuFailed:
+                title = "GPU acceleration unavailable";
+                message = description;
+                warning = true;
+                break;
+        }
+
+        if (title == null) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (warning) _notificationService.ShowWarning(title, message!);
+            else _notificationService.ShowInfo(title, message!);
         });
     }
 
@@ -181,8 +263,10 @@ public partial class App : Application
         {
             _orchestrator?.Stop();
             _settingsWindow?.ShutdownWindow();
+            _statusBubble?.Close();
             _hotkeyService?.Dispose();
             _orchestrator?.Dispose();
+            _localTtsService?.Dispose();
             _trayHost?.Dispose();
         }
         catch { }

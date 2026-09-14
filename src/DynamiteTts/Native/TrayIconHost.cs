@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -143,6 +143,7 @@ public sealed class TrayIconHost : IDisposable
 
         var (hIcon, tip) = state switch
         {
+            TrayIconState.Capturing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Reading selection...)"),
             TrayIconState.Synthesizing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Synthesizing...)"),
             TrayIconState.Speaking => (_hIconSpeaking != IntPtr.Zero ? _hIconSpeaking : _hIconActive, "Dynamite TTS (Speaking...)"),
             _ => (_hIconIdle, "Dynamite TTS (Ready)")

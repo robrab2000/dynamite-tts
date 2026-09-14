@@ -1,9 +1,9 @@
-<Window x:Class="DynamiteTts.UI.SettingsWindow"
+﻿<Window x:Class="DynamiteTts.UI.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:DynamiteTts.UI.Controls"
         Title="Dynamite TTS Settings"
-        Height="680" Width="520"
+        Height="720" Width="540"
         MinHeight="600" MinWidth="480"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
@@ -40,7 +40,7 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
             <StackPanel>
 
-                <!-- Section 1: Server Configuration -->
+                <!-- Section 1: Engine & Hardware Acceleration -->
                 <Border Background="{DynamicResource CardBackgroundBrush}"
                         BorderBrush="{DynamicResource CardBorderBrush}"
                         BorderThickness="1"
@@ -48,41 +48,84 @@
                         Margin="0,0,0,16"
                         Padding="14">
                     <StackPanel>
-                        <TextBlock Text="Lemonade Server" FontSize="14" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="TTS Engine &amp; Acceleration" FontSize="14" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextPrimaryBrush}" />
 
-                        <Label Content="Server Endpoint" Target="{Binding ElementName=EndpointTextBox}" />
-                        <Grid Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="EndpointTextBox" Text="http://localhost:13305/api/v1/audio/speech" VerticalAlignment="Center" />
-                            <Button Grid.Column="1"
-                                    x:Name="TestConnectionButton"
-                                    Content="Test Connection"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Margin="8,0,0,0"
-                                    Click="OnTestConnectionClick" />
-                        </Grid>
+                        <Label Content="Inference Engine" Target="{Binding ElementName=EngineComboBox}" />
+                        <ComboBox x:Name="EngineComboBox" Margin="0,0,0,10" SelectionChanged="OnEngineSelectionChanged">
+                            <ComboBoxItem Content="Local Kokoro (In-Process — CPU, NVIDIA GPU via CUDA when available)" Tag="DirectML" IsSelected="True" />
+                            <ComboBoxItem Content="Lemonade Server (HTTP Endpoint)" Tag="LemonadeServer" />
+                        </ComboBox>
 
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,0">
-                            <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="{DynamicResource WarningBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
-                            <TextBlock x:Name="StatusTextBlock" Text="Checking connection..." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                        <!-- DirectML Configuration & Status Info -->
+                        <StackPanel x:Name="DirectMlInfoPanel" Margin="0,0,0,4">
+                            <Label Content="Hardware Acceleration" Target="{Binding ElementName=DirectMlDeviceComboBox}" />
+                            <Grid Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="DirectMlDeviceComboBox" VerticalAlignment="Center" SelectionChanged="OnDirectMlDeviceChanged" />
+                                <Button Grid.Column="1"
+                                        x:Name="RefreshAdaptersButton"
+                                        Content="Refresh"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,0,0,0"
+                                        Click="OnRefreshAdaptersClick" />
+                            </Grid>
+
+                            <Label Content="Model Precision" Target="{Binding ElementName=DirectMlPrecisionComboBox}" />
+                            <ComboBox x:Name="DirectMlPrecisionComboBox" Margin="0,0,0,10">
+                                <ComboBoxItem Content="FP32 (Full Precision — recommended; same speed as FP16 on CPU and CUDA)" Tag="float32" IsSelected="True" />
+                                <ComboBoxItem Content="FP16 (Half Precision — smaller download only; FP32 is used whenever it is on disk)" Tag="float16" />
+                            </ComboBox>
+
+                            <Border Background="{DynamicResource InputBackgroundBrush}" CornerRadius="4" Padding="10">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
+                                        <Ellipse x:Name="DirectMlStatusDot" Width="9" Height="9" Fill="{DynamicResource SuccessBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="DirectMlStatusTitle" Text="Local Kokoro engine is loading…" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="DirectMlStatusDetails" Text="Synthesizes speech in-process on your own hardware via ONNX Runtime. Nothing leaves this machine." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
-                        <!-- Action bar when offline -->
-                        <StackPanel x:Name="OfflineActionPanel" Visibility="Collapsed" Margin="0,10,0,0">
-                            <TextBlock Text="Lemonade Server is needed for local speech synthesis." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
-                            <StackPanel Orientation="Horizontal">
-                                <Button x:Name="StartServerButton"
-                                        Content="Start Lemonade Server"
-                                        Style="{StaticResource PrimaryButton}"
-                                        Margin="0,0,8,0"
-                                        Click="OnStartServerClick" />
-                                <Button x:Name="InstallLemonadeButton"
-                                        Content="Install Lemonade Server (winget)"
+                        <!-- Lemonade Server Panel (shown when LemonadeServer selected) -->
+                        <StackPanel x:Name="LemonadeServerPanel" Visibility="Collapsed" Margin="0,6,0,0">
+                            <Label Content="Server Endpoint" Target="{Binding ElementName=EndpointTextBox}" />
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="EndpointTextBox" Text="http://localhost:13305/api/v1/audio/speech" VerticalAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        x:Name="TestConnectionButton"
+                                        Content="Test Connection"
                                         Style="{StaticResource SecondaryButton}"
-                                        Click="OnInstallLemonadeClick" />
+                                        Margin="8,0,0,0"
+                                        Click="OnTestConnectionClick" />
+                            </Grid>
+
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,0">
+                                <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="{DynamicResource WarningBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                <TextBlock x:Name="StatusTextBlock" Text="Checking connection..." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+
+                            <!-- Action bar when offline -->
+                            <StackPanel x:Name="OfflineActionPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                                <TextBlock Text="Lemonade Server is needed when using Server mode." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="StartServerButton"
+                                            Content="Start Lemonade Server"
+                                            Style="{StaticResource PrimaryButton}"
+                                            Margin="0,0,8,0"
+                                            Click="OnStartServerClick" />
+                                    <Button x:Name="InstallLemonadeButton"
+                                            Content="Install Lemonade Server (winget)"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Click="OnInstallLemonadeClick" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -98,20 +141,22 @@
                     <StackPanel>
                         <TextBlock Text="Speech Model &amp; Voice" FontSize="14" FontWeight="Bold" Margin="0,0,0,10" Foreground="{DynamicResource TextPrimaryBrush}" />
 
-                        <Label Content="TTS Model" Target="{Binding ElementName=ModelComboBox}" />
-                        <Grid Margin="0,0,0,12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="ModelComboBox" IsEditable="True" VerticalAlignment="Center" />
-                            <Button Grid.Column="1"
-                                    x:Name="RefreshModelsButton"
-                                    Content="Refresh"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Margin="8,0,0,0"
-                                    Click="OnRefreshModelsClick" />
-                        </Grid>
+                        <StackPanel x:Name="ModelSelectionContainer">
+                            <Label Content="TTS Model" Target="{Binding ElementName=ModelComboBox}" />
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="ModelComboBox" IsEditable="True" VerticalAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        x:Name="RefreshModelsButton"
+                                        Content="Refresh"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,0,0,0"
+                                        Click="OnRefreshModelsClick" />
+                            </Grid>
+                        </StackPanel>
 
                         <Label Content="Voice" Target="{Binding ElementName=VoiceComboBox}" />
                         <Grid Margin="0,0,0,12">
@@ -173,6 +218,12 @@
 
                         <CheckBox x:Name="PlaySoundOnStopCheckBox"
                                   Content="Play audio chime when stopping speech"
+                                  Foreground="{DynamicResource TextPrimaryBrush}"
+                                  FontSize="13"
+                                  Margin="0,0,0,10"
+                                  Cursor="Hand" />
+                        <CheckBox x:Name="ShowStatusBubbleCheckBox"
+                                  Content="Show status bubble at the top of the screen while reading, synthesizing and speaking"
                                   Foreground="{DynamicResource TextPrimaryBrush}"
                                   FontSize="13"
                                   Margin="0,0,0,10"
