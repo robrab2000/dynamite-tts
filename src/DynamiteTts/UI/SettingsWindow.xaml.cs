@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -17,7 +17,7 @@ public partial class SettingsWindow : Window
     private readonly AppSettingsStore _settingsStore;
     private readonly LemonadeTtsClient _ttsClient;
     private readonly HotkeyService _hotkeyService;
-    private readonly DirectMlDeviceService _directMlDeviceService;
+    private readonly CudaDeviceService _deviceService;
     private readonly AudioDeviceService _audioDeviceService;
     private readonly StartupRegistrationService _startupService;
     private readonly LemonadeDependencyService _dependencyService;
@@ -30,7 +30,7 @@ public partial class SettingsWindow : Window
         AppSettingsStore settingsStore,
         LemonadeTtsClient ttsClient,
         HotkeyService hotkeyService,
-        DirectMlDeviceService directMlDeviceService,
+        CudaDeviceService deviceService,
         AudioDeviceService audioDeviceService,
         StartupRegistrationService startupService,
         LemonadeDependencyService dependencyService,
@@ -42,7 +42,7 @@ public partial class SettingsWindow : Window
         _settingsStore = settingsStore;
         _ttsClient = ttsClient;
         _hotkeyService = hotkeyService;
-        _directMlDeviceService = directMlDeviceService;
+        _deviceService = deviceService;
         _audioDeviceService = audioDeviceService;
         _startupService = startupService;
         _dependencyService = dependencyService;
@@ -50,16 +50,90 @@ public partial class SettingsWindow : Window
         _notificationService = notificationService;
 
         _orchestrator.StateChanged += OnOrchestratorStateChanged;
+        _orchestrator.LocalEngine.StatusChanged += OnLocalEngineStatusChanged;
 
         Loaded += OnLoaded;
     }
 
+    private void OnLocalEngineStatusChanged(string _)
+    {
+        Dispatcher.BeginInvoke(UpdateLocalEngineStatus);
+    }
+
+    /// <summary>Shows what the in-process engine is really doing (CPU, GPU idle/loading/active, runtime download).</summary>
+    private void UpdateLocalEngineStatus()
+    {
+        if (DirectMlStatusTitle == null || DirectMlStatusDetails == null || DirectMlStatusDot == null)
+            return;
+
+        var engine = _orchestrator.LocalEngine;
+        var selected = DirectMlDeviceComboBox?.SelectedItem as AccelerationDeviceInfo;
+        var selectionNote = selected != null && selected.IsSelectable && selected.DeviceId != engine.CurrentDeviceId
+            ? $" The selected accelerator ({selected.Description}) is applied after you save."
+            : string.Empty;
+
+        string title, details, brush;
+        switch (engine.State)
+        {
+            case LocalEngineState.NotInitialized:
+            case LocalEngineState.Loading:
+                title = "Local Kokoro engine is loading…";
+                details = "The model is being loaded and warmed up in the background.";
+                brush = "WarningBrush";
+                break;
+            case LocalEngineState.CpuOnly:
+                title = engine.ActiveDeviceDescription;
+                details = "Speech streams sentence by sentence; playback starts after about 0.7 s.";
+                brush = "AccentBrush";
+                break;
+            case LocalEngineState.GpuRuntimeDownloading:
+                title = "Preparing GPU acceleration…";
+                details = engine.ActiveDeviceDescription + " The download happens once and is kept in your local app data.";
+                brush = "WarningBrush";
+                break;
+            case LocalEngineState.GpuRuntimeUnavailable:
+            case LocalEngineState.GpuFailed:
+                title = "Running on CPU — GPU acceleration unavailable";
+                details = engine.ActiveDeviceDescription + " Press Refresh or restart the app to try again.";
+                brush = "WarningBrush";
+                break;
+            case LocalEngineState.GpuIdle:
+                title = $"GPU acceleration ready ({engine.GpuName})";
+                details = engine.ActiveDeviceDescription + " While the GPU session loads (a few seconds), the CPU renders the first sentences so nothing waits.";
+                brush = "SuccessBrush";
+                break;
+            case LocalEngineState.GpuLoading:
+                title = $"GPU session loading ({engine.GpuName})";
+                details = engine.ActiveDeviceDescription;
+                brush = "WarningBrush";
+                break;
+            default:
+                title = $"GPU acceleration active ({engine.ActiveDeviceDescription})";
+                details = $"Segments render on the GPU; the session is unloaded after {Math.Max(1, _settingsStore.Current.GpuIdleUnloadMinutes)} idle minutes so the GPU can sleep.";
+                brush = "SuccessBrush";
+                break;
+        }
+
+        DirectMlStatusTitle.Text = title;
+        DirectMlStatusTitle.Foreground = (Brush)FindResource(brush);
+        DirectMlStatusDot.Fill = (Brush)FindResource(brush);
+        DirectMlStatusDetails.Text = details + selectionNote;
+    }
+
     private void OnOrchestratorStateChanged(TrayIconState state)
     {
-        Dispatcher.Invoke(() =>
+        // BeginInvoke: state changes can arrive from audio/worker threads and must never block them.
+        Dispatcher.BeginInvoke(() =>
         {
             switch (state)
             {
+                case TrayIconState.Capturing:
+                    SpeechActivityPanel.Visibility = Visibility.Visible;
+                    SpeechActivityDot.Fill = (Brush)FindResource("TextSecondaryBrush");
+                    SpeechActivityTextBlock.Text = "Reading selection...";
+                    SpeechActivityTextBlock.Foreground = (Brush)FindResource("TextSecondaryBrush");
+                    break;
+
                 case TrayIconState.Synthesizing:
                     SpeechActivityPanel.Visibility = Visibility.Visible;
                     SpeechActivityDot.Fill = (Brush)FindResource("WarningBrush");
@@ -94,6 +168,7 @@ public partial class SettingsWindow : Window
         RefreshAudioDevices();
         RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
+        UpdateLocalEngineStatus();
         await RefreshModelsAsync();
         await CheckConnectionAsync();
     }
@@ -104,6 +179,7 @@ public partial class SettingsWindow : Window
         RefreshAudioDevices();
         RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
+        UpdateLocalEngineStatus();
         Show();
         if (WindowState == WindowState.Minimized)
         {
@@ -117,6 +193,7 @@ public partial class SettingsWindow : Window
     {
         _isExplicitClose = true;
         _orchestrator.StateChanged -= OnOrchestratorStateChanged;
+        _orchestrator.LocalEngine.StatusChanged -= OnLocalEngineStatusChanged;
         Close();
     }
 
@@ -155,35 +232,26 @@ public partial class SettingsWindow : Window
 
     private void RefreshDirectMlDevices()
     {
-        var devices = _directMlDeviceService.GetAvailableDevices();
+        var devices = _deviceService.GetAvailableDevices();
         DirectMlDeviceComboBox.ItemsSource = devices;
         DirectMlDeviceComboBox.DisplayMemberPath = "Name";
         DirectMlDeviceComboBox.SelectedValuePath = "DeviceId";
 
-        var currentDeviceId = _settingsStore.Current.DirectMlDeviceId;
-        var selected = devices.FirstOrDefault(d =>
-                            d.DeviceId == currentDeviceId &&
-                            d.Kind != DirectMlDeviceKind.NpuUnavailable)
-                        ?? PreferFastestGpu(devices)
-                        ?? devices.FirstOrDefault(d => d.Kind != DirectMlDeviceKind.NpuUnavailable);
-
-        if (selected != null)
-        {
-            DirectMlDeviceComboBox.SelectedItem = selected;
-        }
+        SelectAccelerationDevice(_settingsStore.Current.DirectMlDeviceId);
     }
 
-    private static DirectMlDeviceInfo? PreferFastestGpu(IReadOnlyList<DirectMlDeviceInfo> devices)
+    /// <summary>Selects the saved accelerator, or Auto when the saved id no longer exists (e.g. an old DirectML adapter index).</summary>
+    private void SelectAccelerationDevice(int deviceId)
     {
-        return devices.FirstOrDefault(d =>
-                   d.Kind == DirectMlDeviceKind.Gpu &&
-                   (d.Description.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
-                    d.Description.Contains("GeForce", StringComparison.OrdinalIgnoreCase) ||
-                    d.Description.Contains("RTX", StringComparison.OrdinalIgnoreCase)))
-               ?? devices.FirstOrDefault(d =>
-                   d.Kind == DirectMlDeviceKind.Gpu &&
-                   (d.Description.Contains("AMD", StringComparison.OrdinalIgnoreCase) ||
-                    d.Description.Contains("Radeon", StringComparison.OrdinalIgnoreCase)));
+        if (DirectMlDeviceComboBox.ItemsSource is not System.Collections.Generic.IEnumerable<AccelerationDeviceInfo> devices)
+            return;
+
+        var list = devices.ToList();
+        var match = list.FirstOrDefault(d => d.DeviceId == deviceId && d.IsSelectable)
+                    ?? list.FirstOrDefault(d => d.Kind == AccelerationDeviceKind.Auto)
+                    ?? list.FirstOrDefault(d => d.IsSelectable);
+        if (match != null)
+            DirectMlDeviceComboBox.SelectedItem = match;
     }
 
     private void RefreshAudioDevices()
@@ -225,19 +293,8 @@ public partial class SettingsWindow : Window
             }
         }
 
-        // DirectML Device selection
-        if (DirectMlDeviceComboBox.ItemsSource is System.Collections.Generic.IEnumerable<DirectMlDeviceInfo> dmlDevices)
-        {
-            var match = dmlDevices.FirstOrDefault(d =>
-                            d.DeviceId == settings.DirectMlDeviceId &&
-                            d.Kind != DirectMlDeviceKind.NpuUnavailable)
-                        ?? PreferFastestGpu(dmlDevices.ToList())
-                        ?? dmlDevices.FirstOrDefault(d => d.Kind != DirectMlDeviceKind.NpuUnavailable);
-            if (match != null)
-            {
-                DirectMlDeviceComboBox.SelectedItem = match;
-            }
-        }
+        // Accelerator selection
+        SelectAccelerationDevice(settings.DirectMlDeviceId);
 
         EndpointTextBox.Text = settings.SpeechEndpoint;
         ModelComboBox.Text = settings.Model;
@@ -250,6 +307,7 @@ public partial class SettingsWindow : Window
         SpeedValueTextBlock.Text = $"{settings.Speed:F2}x";
         HotkeyCaptureControl.Hotkey = settings.Hotkey;
         PlaySoundOnStopCheckBox.IsChecked = settings.PlaySoundOnStop;
+        ShowStatusBubbleCheckBox.IsChecked = settings.ShowStatusBubble;
         LaunchAtStartupCheckBox.IsChecked = _startupService.IsStartupEnabled();
 
         if (AudioDeviceComboBox.ItemsSource is System.Collections.Generic.IEnumerable<AudioDeviceInfo> devices)
@@ -273,39 +331,29 @@ public partial class SettingsWindow : Window
 
     private void OnDirectMlDeviceChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (DirectMlDeviceComboBox?.SelectedItem is not DirectMlDeviceInfo deviceInfo)
+        if (DirectMlDeviceComboBox?.SelectedItem is not AccelerationDeviceInfo deviceInfo)
             return;
 
         if (DirectMlStatusTitle == null || DirectMlStatusDetails == null || DirectMlStatusDot == null)
             return;
 
-        if (deviceInfo.Kind == DirectMlDeviceKind.NpuUnavailable)
+        if (deviceInfo.Kind == AccelerationDeviceKind.NpuUnavailable)
         {
             DirectMlStatusTitle.Text = "AMD Ryzen AI NPU unavailable for Kokoro TTS";
             DirectMlStatusTitle.Foreground = (Brush)FindResource("AccentBrush");
             DirectMlStatusDot.Fill = (Brush)FindResource("AccentBrush");
-            DirectMlStatusDetails.Text = DirectMlDeviceService.NpuUnavailableReason +
-                " Watch GPU 0/1 Compute in Task Manager when testing speech.";
+            DirectMlStatusDetails.Text = CudaDeviceService.NpuUnavailableReason;
 
-            // Snap selection back to a usable GPU (prefer AMD iGPU if present)
-            var devices = _directMlDeviceService.GetAvailableDevices();
-            var amdGpu = devices.FirstOrDefault(d =>
-                d.Kind == DirectMlDeviceKind.Gpu &&
-                (d.Description.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ||
-                 d.Description.Contains("RTX", StringComparison.OrdinalIgnoreCase)))
-                ?? devices.FirstOrDefault(d =>
-                d.Kind == DirectMlDeviceKind.Gpu &&
-                d.Description.Contains("AMD", StringComparison.OrdinalIgnoreCase));
-            var fallback = amdGpu
-                ?? devices.FirstOrDefault(d => d.Kind == DirectMlDeviceKind.Gpu)
-                ?? devices.FirstOrDefault(d => d.Kind == DirectMlDeviceKind.Auto);
+            // Snap selection back to Auto
+            var fallback = (DirectMlDeviceComboBox.ItemsSource as System.Collections.Generic.IEnumerable<AccelerationDeviceInfo>)?
+                .FirstOrDefault(d => d.Kind == AccelerationDeviceKind.Auto);
 
             if (fallback != null)
             {
                 Dispatcher.BeginInvoke(() =>
                 {
                     MessageBox.Show(this,
-                        DirectMlDeviceService.NpuUnavailableReason +
+                        CudaDeviceService.NpuUnavailableReason +
                         "\n\nSwitching you to: " + fallback.Name,
                         "NPU not available for TTS",
                         MessageBoxButton.OK,
@@ -317,26 +365,16 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        if (deviceInfo.Kind == DirectMlDeviceKind.Auto || deviceInfo.DeviceId == -1)
-        {
-            DirectMlStatusTitle.Text = "DirectML GPU acceleration (Auto → fastest GPU)";
-            DirectMlStatusTitle.Foreground = (Brush)FindResource("SuccessBrush");
-            DirectMlStatusDot.Fill = (Brush)FindResource("SuccessBrush");
-            DirectMlStatusDetails.Text =
-                "Prefers your NVIDIA RTX when present. Audio now streams segment-by-segment so speech starts sooner. Watch that GPU's Compute graph — not the NPU.";
-            return;
-        }
-
-        DirectMlStatusTitle.Text = $"DirectML GPU: {deviceInfo.Description}";
-        DirectMlStatusTitle.Foreground = (Brush)FindResource("SuccessBrush");
-        DirectMlStatusDot.Fill = (Brush)FindResource("SuccessBrush");
-        DirectMlStatusDetails.Text =
-            $"Kokoro streams short segments on DXGI adapter {deviceInfo.DeviceId} for lower latency. Watch that GPU's Compute engine in Task Manager.";
+        // Show what the engine is really running on rather than an optimistic label.
+        UpdateLocalEngineStatus();
     }
 
     private void OnRefreshAdaptersClick(object sender, RoutedEventArgs e)
     {
         RefreshDirectMlDevices();
+        // Also retry a failed runtime download / GPU session; the status line follows via StatusChanged.
+        _ = _orchestrator.LocalEngine.RetryGpuAsync();
+        UpdateLocalEngineStatus();
     }
 
     private void UpdateEnginePanelsVisibility(bool isDirectMl)
@@ -375,9 +413,9 @@ public partial class SettingsWindow : Window
 
         var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
 
-        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as DirectMlDeviceInfo;
+        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as AccelerationDeviceInfo;
         var dmlDeviceId = selectedDmlDevice?.DeviceId ?? _settingsStore.Current.DirectMlDeviceId;
-        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == DirectMlDeviceKind.NpuUnavailable)
+        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == AccelerationDeviceKind.NpuUnavailable)
             dmlDeviceId = -1;
 
         var selectedPrecisionItem = DirectMlPrecisionComboBox.SelectedItem as ComboBoxItem;
@@ -393,11 +431,13 @@ public partial class SettingsWindow : Window
             Hotkey = HotkeyCaptureControl.Hotkey ?? _settingsStore.Current.Hotkey,
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = LaunchAtStartupCheckBox.IsChecked == true,
             EngineMode = selectedEngine,
             UseDirectMlAcceleration = true,
             DirectMlDeviceId = dmlDeviceId,
-            DirectMlModelPrecision = precision
+            DirectMlModelPrecision = precision,
+            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes
         };
     }
 
@@ -627,13 +667,13 @@ public partial class SettingsWindow : Window
         var selectedDevice = AudioDeviceComboBox.SelectedItem as AudioDeviceInfo;
         var audioDeviceId = selectedDevice?.Id ?? string.Empty;
 
-        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as DirectMlDeviceInfo;
+        var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as AccelerationDeviceInfo;
         var dmlDeviceId = selectedDmlDevice?.DeviceId ?? -1;
-        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == DirectMlDeviceKind.NpuUnavailable)
+        if (dmlDeviceId == -100 || selectedDmlDevice?.Kind == AccelerationDeviceKind.NpuUnavailable)
             dmlDeviceId = -1;
 
         var selectedPrecisionItem = DirectMlPrecisionComboBox.SelectedItem as ComboBoxItem;
-        var precision = selectedPrecisionItem?.Tag?.ToString() ?? "float16";
+        var precision = selectedPrecisionItem?.Tag?.ToString() ?? "float32";
 
         var isStartup = LaunchAtStartupCheckBox.IsChecked == true;
         _startupService.SetStartupEnabled(isStartup);
@@ -648,11 +688,13 @@ public partial class SettingsWindow : Window
             Hotkey = newHotkey,
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = isStartup,
             EngineMode = selectedEngine,
             UseDirectMlAcceleration = true,
             DirectMlDeviceId = dmlDeviceId,
-            DirectMlModelPrecision = precision
+            DirectMlModelPrecision = precision,
+            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes
         };
 
         _settingsStore.Save(newSettings);

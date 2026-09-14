@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using DynamiteTts.Models;
 
 namespace DynamiteTts.Models;
@@ -14,10 +14,13 @@ public class AppSettings
     public string AudioDeviceId { get; set; } = string.Empty; // Empty string = System Default Device
     public bool RunAtStartup { get; set; } = false;
     public bool PlaySoundOnStop { get; set; } = true;
-    public string EngineMode { get; set; } = "DirectML"; // "DirectML" or "LemonadeServer"
-    public bool UseDirectMlAcceleration { get; set; } = true;
-    public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto, 0, 1, 2...
-    public string DirectMlModelPrecision { get; set; } = "float16"; // "float16" or "float32"
+    public bool ShowStatusBubble { get; set; } = true; // status pill at the top of the screen while reading/synthesizing/speaking
+    // Property names below keep their historical JSON names for settings.json compatibility.
+    public string EngineMode { get; set; } = "DirectML"; // "DirectML" = in-process local engine (CPU + CUDA), "LemonadeServer" = HTTP
+    public bool UseDirectMlAcceleration { get; set; } = true; // allow the NVIDIA GPU (CUDA) to be used
+    public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto (GPU when available), -2 = CPU only, 0.. = CUDA device ordinal
+    public string DirectMlModelPrecision { get; set; } = "float32"; // "float32" (preferred) or "float16"
+    public int GpuIdleUnloadMinutes { get; set; } = 5; // unload the CUDA session after this many idle minutes so the dGPU can sleep
 
     public AppSettings Clone()
     {
@@ -36,10 +39,12 @@ public class AppSettings
             AudioDeviceId = AudioDeviceId,
             RunAtStartup = RunAtStartup,
             PlaySoundOnStop = PlaySoundOnStop,
+            ShowStatusBubble = ShowStatusBubble,
             EngineMode = EngineMode,
             UseDirectMlAcceleration = UseDirectMlAcceleration,
             DirectMlDeviceId = DirectMlDeviceId,
-            DirectMlModelPrecision = DirectMlModelPrecision
+            DirectMlModelPrecision = DirectMlModelPrecision,
+            GpuIdleUnloadMinutes = GpuIdleUnloadMinutes
         };
     }
 }

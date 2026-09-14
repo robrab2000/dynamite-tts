@@ -1,11 +1,35 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using DynamiteTts.Models;
 using DynamiteTts.Native;
 
 namespace DynamiteTts.Services;
+
+/// <summary>Timings for one speak request, measured from the moment synthesis was requested.</summary>
+public sealed record PipelineMetrics(
+    string Engine,
+    int TextLength,
+    int Segments,
+    double AudioSeconds,
+    double FirstSegmentMs,
+    double FirstAudioMs,
+    double SynthesisDoneMs,
+    double PlaybackDoneMs,
+    double UnderrunSeconds,
+    bool UsedFallback,
+    string? FallbackReason,
+    bool Cancelled)
+{
+    public override string ToString() =>
+        $"engine={Engine} chars={TextLength} segments={Segments} audio={AudioSeconds:F1}s " +
+        $"firstSegment={FirstSegmentMs:F0}ms firstAudible={FirstAudioMs:F0}ms synthesisDone={SynthesisDoneMs:F0}ms " +
+        $"playbackDone={PlaybackDoneMs:F0}ms underrun={UnderrunSeconds:F2}s fallback={UsedFallback}" +
+        (FallbackReason != null ? $" ({FallbackReason})" : string.Empty) +
+        (Cancelled ? " cancelled" : string.Empty);
+}
 
 public class SpeechOrchestrator : IDisposable
 {
@@ -18,11 +42,24 @@ public class SpeechOrchestrator : IDisposable
     private readonly TrayNotificationService _notificationService;
 
     private readonly object _lock = new();
+    private readonly object _stateLock = new();
     private CancellationTokenSource? _currentCts;
     private string? _lastSpokenText;
     private bool _isDisposed;
 
+    /// <summary>
+    /// Raised whenever the pipeline state changes. May be raised from any thread; handlers must not
+    /// block (marshal with BeginInvoke). A throwing handler is logged and ignored.
+    /// </summary>
     public event Action<TrayIconState>? StateChanged;
+
+    /// <summary>Short user-facing notices such as "No text selected".</summary>
+    public event Action<string>? Notice;
+
+    /// <summary>Raised after every speak request with its timings.</summary>
+    public event Action<PipelineMetrics>? PipelineCompleted;
+
+    public PipelineMetrics? LastMetrics { get; private set; }
 
     public TrayIconState CurrentState { get; private set; } = TrayIconState.Idle;
 
@@ -57,9 +94,24 @@ public class SpeechOrchestrator : IDisposable
 
     private void UpdateState(TrayIconState state)
     {
-        CurrentState = state;
-        _trayHost.SetState(state);
-        StateChanged?.Invoke(state);
+        lock (_stateLock)
+        {
+            if (CurrentState == state) return;
+            CurrentState = state;
+        }
+
+        try { _trayHost.SetState(state); }
+        catch (Exception ex) { AppLog.Warn("Tray icon update failed", ex); }
+
+        var handlers = StateChanged;
+        if (handlers == null) return;
+
+        // A UI handler must never be able to break (or silently reroute) the speech pipeline.
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try { ((Action<TrayIconState>)handler)(state); }
+            catch (Exception ex) { AppLog.Warn($"State handler failed for {state}", ex); }
+        }
     }
 
     public void Stop()
@@ -78,9 +130,23 @@ public class SpeechOrchestrator : IDisposable
     {
         var settings = _settingsStore.Current;
         bool wasBusy = IsBusy;
+        var clock = Stopwatch.StartNew();
+
+        if (!wasBusy)
+            UpdateState(TrayIconState.Capturing);
 
         // 1. Capture highlighted text from selection
-        var capturedText = await _clipboardService.CaptureSelectedTextAsync();
+        string? capturedText;
+        try
+        {
+            capturedText = await _clipboardService.CaptureSelectedTextAsync();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Selection capture failed", ex);
+            capturedText = null;
+        }
+        AppLog.Info($"hotkey: captured {capturedText?.Length ?? 0} chars in {clock.ElapsedMilliseconds} ms (busy before: {wasBusy})");
 
         // 2. If nothing is selected
         if (string.IsNullOrWhiteSpace(capturedText))
@@ -92,6 +158,12 @@ public class SpeechOrchestrator : IDisposable
                 {
                     _audioService.PlayStopChime();
                 }
+            }
+            else
+            {
+                if (CurrentState == TrayIconState.Capturing)
+                    UpdateState(TrayIconState.Idle);
+                RaiseNotice("No text selected");
             }
             return;
         }
@@ -129,6 +201,38 @@ public class SpeechOrchestrator : IDisposable
         return StartPipelineAsync(textToSpeak: text, overrideSettings: settings);
     }
 
+    private void RaiseNotice(string message)
+    {
+        try { Notice?.Invoke(message); }
+        catch (Exception ex) { AppLog.Warn("Notice handler failed", ex); }
+    }
+
+    private sealed class PipelineRun
+    {
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+
+        public PipelineRun(int textLength) => TextLength = textLength;
+
+        public int TextLength { get; }
+        public string Engine = "?";
+        public int Segments;
+        public double AudioSeconds;
+        public double FirstSegmentMs = -1;
+        public double FirstAudioMs = -1;
+        public double SynthesisDoneMs = -1;
+        public double PlaybackDoneMs = -1;
+        public double UnderrunSeconds;
+        public bool UsedFallback;
+        public string? FallbackReason;
+        public bool Cancelled;
+
+        public double Now => _clock.Elapsed.TotalMilliseconds;
+
+        public PipelineMetrics ToMetrics() => new(
+            Engine, TextLength, Segments, AudioSeconds, FirstSegmentMs, FirstAudioMs,
+            SynthesisDoneMs, PlaybackDoneMs, UnderrunSeconds, UsedFallback, FallbackReason, Cancelled);
+    }
+
     private async Task StartPipelineAsync(string textToSpeak, AppSettings? overrideSettings = null)
     {
         CancellationTokenSource cts;
@@ -143,6 +247,7 @@ public class SpeechOrchestrator : IDisposable
         _audioService.Stop();
         UpdateState(TrayIconState.Synthesizing);
 
+        var run = new PipelineRun(textToSpeak.Length);
         try
         {
             var settings = overrideSettings ?? _settingsStore.Current;
@@ -155,18 +260,28 @@ public class SpeechOrchestrator : IDisposable
                 return;
             }
 
-            await ExecuteChunkPipelineAsync(chunks, settings, voice, cts.Token);
+            run.Engine = settings.EngineMode;
+            AppLog.Info($"speak: {textToSpeak.Length} chars in {chunks.Count} chunk(s), engine {settings.EngineMode}, voice {voice}, speed {settings.Speed:F2}");
+
+            await ExecuteChunkPipelineAsync(chunks, settings, voice, run, cts.Token);
         }
         catch (OperationCanceledException)
         {
             // Normal cancellation / stop / preemption
+            run.Cancelled = true;
         }
         catch (Exception ex)
         {
+            AppLog.Error("Speech pipeline failed", ex);
             _notificationService.ShowError("Dynamite TTS Error", ex.Message);
         }
         finally
         {
+            var metrics = run.ToMetrics();
+            LastMetrics = metrics;
+            AppLog.Info("speak done: " + metrics);
+            try { PipelineCompleted?.Invoke(metrics); } catch { }
+
             lock (_lock)
             {
                 if (ReferenceEquals(_currentCts, cts))
@@ -183,28 +298,40 @@ public class SpeechOrchestrator : IDisposable
         IReadOnlyList<string> chunks,
         AppSettings settings,
         string voice,
+        PipelineRun run,
         CancellationToken ct)
     {
         if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
-                await ExecuteLocalStreamingPipelineAsync(chunks, settings, voice, ct);
+                await ExecuteLocalStreamingPipelineAsync(chunks, settings, voice, run, ct);
                 return;
             }
-            catch when (!ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                // Fall through to Lemonade HTTP path
+                // Previously swallowed silently, which turned a streaming failure into
+                // "render the whole chunk, then play it". Record why.
+                run.UsedFallback = true;
+                run.FallbackReason = $"{ex.GetType().Name}: {ex.Message}";
+                AppLog.Warn("Local streaming pipeline failed; falling back to the non-streaming path", ex);
+                _audioService.Stop();
+                UpdateState(TrayIconState.Synthesizing);
             }
         }
+
+        run.Segments = chunks.Count;
 
         if (chunks.Count == 1)
         {
             UpdateState(TrayIconState.Synthesizing);
             var audioData = await GenerateChunkAudioAsync(settings, chunks[0], voice, ct);
+            run.SynthesisDoneMs = run.Now;
 
+            run.FirstAudioMs = run.Now;
             UpdateState(TrayIconState.Speaking);
             await _audioService.PlayAsync(audioData, settings.AudioDeviceId, ct);
+            run.PlaybackDoneMs = run.Now;
             return;
         }
 
@@ -222,47 +349,69 @@ public class SpeechOrchestrator : IDisposable
                 var nextIndex = i + 1;
                 nextFetchTask = GenerateChunkAudioAsync(settings, chunks[nextIndex], voice, ct);
             }
+            else
+            {
+                run.SynthesisDoneMs = run.Now;
+            }
 
+            if (run.FirstAudioMs < 0) run.FirstAudioMs = run.Now;
             UpdateState(TrayIconState.Speaking);
             await _audioService.PlayAsync(currentAudio, settings.AudioDeviceId, ct);
         }
+
+        run.PlaybackDoneMs = run.Now;
     }
 
+    /// <summary>The in-process Kokoro engine (exposed so the UI can show which device is active).</summary>
+    public LocalTtsService LocalEngine => _localTtsService;
+
+    /// <summary>
+    /// Local engine path: one gapless playback stream for the whole selection. The engine renders
+    /// short segments and writes them into the stream as they finish, so playback of the first
+    /// sentence starts while the rest is still being synthesized; the stream applies back-pressure
+    /// so synthesis stays only a few seconds ahead of playback.
+    /// </summary>
     private async Task ExecuteLocalStreamingPipelineAsync(
         IReadOnlyList<string> chunks,
         AppSettings settings,
         string voice,
+        PipelineRun run,
         CancellationToken ct)
     {
         UpdateState(TrayIconState.Synthesizing);
-        var startedSpeaking = false;
 
-        foreach (var chunk in chunks)
+        using var stream = _audioService.BeginStream(LocalTtsService.SampleRate, settings.AudioDeviceId, ct);
+
+        // "Speaking" means the listener is hearing audio, not merely that a segment was rendered.
+        stream.PlaybackStarted += () =>
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested || run.PlaybackDoneMs >= 0) return;
+            run.FirstAudioMs = run.Now;
+            UpdateState(TrayIconState.Speaking);
+        };
 
-            await _localTtsService.GenerateSpeechStreamingAsync(
-                chunk,
-                voice,
-                settings.Speed,
-                settings.DirectMlDeviceId,
-                settings.DirectMlModelPrecision,
-                onSegmentAsync: async samples =>
-                {
-                    if (!startedSpeaking)
-                    {
-                        startedSpeaking = true;
-                        UpdateState(TrayIconState.Speaking);
-                    }
+        await _localTtsService.GenerateSpeechStreamingAsync(
+            chunks,
+            voice,
+            settings.Speed,
+            settings.DirectMlDeviceId,
+            settings.DirectMlModelPrecision,
+            onSegmentAsync: async samples =>
+            {
+                if (run.Segments == 0) run.FirstSegmentMs = run.Now;
+                run.Segments++;
+                run.AudioSeconds += samples.Length / (double)LocalTtsService.SampleRate;
+                await stream.WriteAsync(samples, ct);
+            },
+            ct);
 
-                    await _audioService.PlayRawMonoFloatAsync(
-                        samples,
-                        sampleRate: 24000,
-                        settings.AudioDeviceId,
-                        ct);
-                },
-                ct);
-        }
+        run.SynthesisDoneMs = run.Now;
+        run.Engine = $"local/{_localTtsService.State}";
+        AppLog.Info($"speak: synthesis finished at {run.SynthesisDoneMs:F0} ms; {stream.PlayedSeconds:F1}s of {run.AudioSeconds:F1}s already played");
+
+        await stream.CompleteAsync();
+        run.PlaybackDoneMs = run.Now;
+        run.UnderrunSeconds = stream.UnderrunSamples / (double)LocalTtsService.SampleRate;
     }
 
     private async Task<byte[]> GenerateChunkAudioAsync(
@@ -283,8 +432,9 @@ public class SpeechOrchestrator : IDisposable
                     settings.DirectMlModelPrecision,
                     ct);
             }
-            catch when (!ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
+                AppLog.Warn("Local WAV synthesis failed; falling back to Lemonade Server", ex);
                 // Fallback to Lemonade Server if local engine encountered an issue
                 return await _ttsClient.GenerateSpeechAsync(
                     settings.SpeechEndpoint,

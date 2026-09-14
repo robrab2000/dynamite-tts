@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -33,7 +33,31 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="3.0.1" />
-    <PackageReference Include="KokoroSharp.DirectML" Version="0.8.4" />
+    <!-- KokoroSharp supplies the tokenizer and voice packs. The ONNX Runtime GPU build carries the CPU
+         provider plus the CUDA provider (loaded on demand; the CUDA 13 runtime DLLs are downloaded by
+         CudaRuntimeService at first use). DirectML was dropped: it cannot run Kokoro's ConvTranspose nodes. -->
+    <PackageReference Include="KokoroSharp" Version="0.8.4" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Windows" Version="1.29.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.29.0" />
+  </ItemGroup>
+
+  <!-- KokoroSharp copies its voice packs into the build output only (a Copy task AfterTargets="Build"),
+       so `dotnet publish` produced an executable with no voices and the local engine failed to load.
+       Ship the voices, and the Kokoro model when it is present in the repo root, next to the published
+       executable and outside the single-file bundle, where the engine looks for them. Without a local
+       model file the engine downloads it once into %LocalAppData%\DynamiteTts\models. -->
+  <ItemGroup>
+    <None Include="$(PkgKokoroSharp)\content\voices\**\*"
+          Link="voices\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true"
+          Visible="false" />
+    <None Include="..\..\kokoro.onnx"
+          Condition="Exists('..\..\kokoro.onnx')"
+          Link="kokoro.onnx"
+          CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true"
+          Visible="false" />
   </ItemGroup>
 
 </Project>

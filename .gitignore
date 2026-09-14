@@ -28,3 +28,9 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
+
+# Benchmark logs
+*.log
+experiments/cuda-runtime/
+
+experiments/bubble-shots/
