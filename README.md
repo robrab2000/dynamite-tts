@@ -15,6 +15,10 @@ A fast, lightweight, and 100% private Windows highlight-to-speech utility powere
   - Instant text-to-speech from any application (browser, PDF, code editor, office apps).
   - Modifier key debounce so standard `Ctrl+C` copy operates reliably in every application.
   - Interactive "Press Shortcut" recorder in Settings with dynamic conflict detection and instant rebinding (no restart required).
+- **Summary / Verbatim Mode Toggle (Default: `Ctrl+Shift+M`):**
+  - Flips between **Verbatim** (speak the selection as-is) and **Summary** (summarize first, then speak).
+  - Summary mode calls a local [Lemonade Server](https://lemonade-server.ai) LLM via OpenAI-compatible `/chat/completions` — text stays on-device. TTS can still use in-process Kokoro.
+  - The status bubble shows “Mode: Summary” / “Mode: Verbatim” on toggle, and “Summarizing…” while the LLM runs.
 - **Clipboard Preservation:**
   - Safely captures full COM `IDataObject` preserving all existing clipboard content (including images, screenshots, files, and formatted text).
   - Automatically restores your previous clipboard content after extracting the selected text.
@@ -31,7 +35,7 @@ A fast, lightweight, and 100% private Windows highlight-to-speech utility powere
   - "CPU only" in Settings keeps the GPU untouched; DirectML and the Ryzen AI NPU were evaluated and rejected (see `experiments/FINDINGS-tts-backends.md`).
   - Playback starts as soon as the first sentence is rendered (about 0.2 s with the GPU session loaded, 0.6–0.8 s on the CPU) and continues while the rest of the selection is synthesized.
 - **Status Bubble:**
-  - A small pill at the top of the screen, in the style of Handy's recording bubble, shows "Reading selection…", "Synthesizing…" and "Speaking", with level bars that follow the actual audio output and a stop button.
+  - A small pill at the top of the screen, in the style of Handy's recording bubble, shows "Reading selection…", "Summarizing…", "Synthesizing…" and "Speaking", with level bars that follow the actual audio output and a stop button.
   - It never takes keyboard focus, so it cannot interfere with the selection capture or with typing. It can be turned off in Settings.
 - **Diagnostics Log:**
   - Each request's timings (time to first audible audio, synthesis and playback duration, mid-speech gaps, fallbacks) and engine state changes are written to `%LocalAppData%\DynamiteTts\logs`, kept for a week. The spoken text itself is never logged.
@@ -60,7 +64,7 @@ DynamiteTts.sln
 │       ├── Native/
 │       │   ├── NativeMethods.cs              # Shell_NotifyIcon, RegisterHotKey, SendInput, Menus
 │       │   ├── TrayIconHost.cs               # HWND_MESSAGE, 3-state icon switching, context menu
-│       │   └── HotkeyService.cs              # Win32 RegisterHotKey with conflict detection & dynamic rebind
+│       │   └── HotkeyService.cs              # Win32 RegisterHotKey (speak + mode-toggle IDs), conflict detection & rebind
 │       ├── Services/
 │       │   ├── AppSettingsStore.cs           # %AppData%\DynamiteTts\settings.json
 │       │   ├── AppLog.cs                     # Daily rolling diagnostics log in %LocalAppData%\DynamiteTts\logs (timings only, never text)
@@ -71,21 +75,23 @@ DynamiteTts.sln
 │       │   ├── CudaRuntimeService.cs         # Downloads/extracts the CUDA 13 DLLs (cudart, cuBLAS, cuDNN, cuFFT, NVRTC) from NVIDIA's PyPI wheels
 │       │   ├── CudaDeviceService.cs          # NVIDIA GPU enumeration via the CUDA driver API; accelerator picker entries
 │       │   ├── LemonadeTtsClient.cs          # HTTP client, endpoint normalizer, model discovery
+│       │   ├── LemonadeChatClient.cs         # Local Lemonade /chat/completions for Summary mode
 │       │   ├── AudioDeviceService.cs         # Output device enumeration (MMDevice)
 │       │   ├── AudioPlaybackService.cs       # NAudio WASAPI Shared playback & cancellation
-│       │   ├── SpeechOrchestrator.cs         # Speech lifecycle, state machine, cancellation
+│       │   ├── SpeechOrchestrator.cs         # Speech lifecycle, verbatim/summary mode, state machine, cancellation
 │       │   ├── StartupRegistrationService.cs # HKCU Run registry helper
 │       │   └── TrayNotificationService.cs    # Native Windows balloon notifications
 │       ├── Models/
 │       │   ├── AppSettings.cs
 │       │   ├── AudioDeviceInfo.cs
 │       │   ├── HotkeyConfig.cs
+│       │   ├── SpeakMode.cs                  # Verbatim | Summary
 │       │   ├── TrayIconState.cs
 │       │   ├── TtsModelInfo.cs
 │       │   └── VoicePreset.cs
 │       ├── UI/
 │       │   ├── SettingsWindow.xaml(+.cs)     # Dark/Light adaptive Settings window
-│       │   ├── StatusBubbleWindow.xaml(+.cs) # Top-of-screen status pill (reading / synthesizing / speaking) that never takes focus
+│       │   ├── StatusBubbleWindow.xaml(+.cs) # Top-of-screen status pill (reading / summarizing / synthesizing / speaking)
 │       │   └── Controls/
 │       │       └── HotkeyCaptureBox.xaml(+.cs)# Interactive shortcut capture box
 │       └── Resources/

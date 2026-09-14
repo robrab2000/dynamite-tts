@@ -55,6 +55,7 @@ public class SpeechOrchestratorTests : IDisposable
 
         using var httpClient = new HttpClient(handler);
         using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient();
         using var trayHost = new TrayIconHost();
         var notificationService = new TrayNotificationService(trayHost);
 
@@ -62,6 +63,7 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            chatClient,
             localTtsService,
             audioService,
             trayHost,
@@ -117,6 +119,7 @@ public class SpeechOrchestratorTests : IDisposable
 
         using var httpClient = new HttpClient(handler);
         using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient();
         using var trayHost = new TrayIconHost();
         var notificationService = new TrayNotificationService(trayHost);
 
@@ -124,6 +127,7 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            chatClient,
             localTtsService,
             audioService,
             trayHost,
@@ -149,6 +153,7 @@ public class SpeechOrchestratorTests : IDisposable
         var clipboardService = new ClipboardSelectionService();
         var audioService = new AudioPlaybackService();
         using var ttsClient = new LemonadeTtsClient();
+        using var chatClient = new LemonadeChatClient();
         using var localTtsService = new LocalTtsService();
         using var trayHost = new TrayIconHost();
         var notificationService = new TrayNotificationService(trayHost);
@@ -157,6 +162,7 @@ public class SpeechOrchestratorTests : IDisposable
             settingsStore,
             clipboardService,
             ttsClient,
+            chatClient,
             localTtsService,
             audioService,
             trayHost,
@@ -165,6 +171,119 @@ public class SpeechOrchestratorTests : IDisposable
         var ex = Record.Exception(() => orchestrator.Stop());
         Assert.Null(ex);
         Assert.Equal(TrayIconState.Idle, orchestrator.CurrentState);
+    }
+
+    [Fact]
+    public void ToggleSpeakMode_PersistsAndRaisesNotice()
+    {
+        var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var clipboardService = new ClipboardSelectionService();
+        var audioService = new AudioPlaybackService();
+        using var ttsClient = new LemonadeTtsClient();
+        using var chatClient = new LemonadeChatClient();
+        using var localTtsService = new LocalTtsService();
+        using var trayHost = new TrayIconHost();
+        var notificationService = new TrayNotificationService(trayHost);
+
+        using var orchestrator = new SpeechOrchestrator(
+            settingsStore,
+            clipboardService,
+            ttsClient,
+            chatClient,
+            localTtsService,
+            audioService,
+            trayHost,
+            notificationService);
+
+        string? notice = null;
+        SpeakMode? observed = null;
+        orchestrator.Notice += msg => notice = msg;
+        orchestrator.SpeakModeChanged += mode => observed = mode;
+
+        Assert.Equal(SpeakMode.Verbatim, orchestrator.CurrentSpeakMode);
+        orchestrator.ToggleSpeakMode();
+        Assert.Equal(SpeakMode.Summary, orchestrator.CurrentSpeakMode);
+        Assert.Equal(SpeakMode.Summary, settingsStore.Current.SpeakMode);
+        Assert.Equal("Mode: Summary", notice);
+        Assert.Equal(SpeakMode.Summary, observed);
+
+        orchestrator.ToggleSpeakMode();
+        Assert.Equal(SpeakMode.Verbatim, orchestrator.CurrentSpeakMode);
+        Assert.Equal("Mode: Verbatim", notice);
+    }
+
+    [Fact]
+    public async Task SpeakOrSummarizeCapturedAsync_InSummaryMode_CallsChatThenSpeaks()
+    {
+        var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var settings = settingsStore.Current;
+        settings.EngineMode = "LemonadeServer";
+        settings.SpeakMode = SpeakMode.Summary;
+        settings.SummaryModel = "Qwen2.5-0.5B-Instruct";
+        settingsStore.Save(settings);
+
+        var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
+
+        var chatSeen = false;
+        var speechInput = string.Empty;
+        var handler = new MockHttpMessageHandler
+        {
+            Handler = req =>
+            {
+                var path = req.RequestUri!.AbsolutePath;
+                if (path.EndsWith("/chat/completions"))
+                {
+                    chatSeen = true;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"choices":[{"message":{"content":"Brief summary."}}]}""")
+                    };
+                }
+
+                if (path.EndsWith("/audio/speech"))
+                {
+                    var json = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    using var doc = JsonDocument.Parse(json);
+                    speechInput = doc.RootElement.GetProperty("input").GetString() ?? string.Empty;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(wavData)
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+        };
+
+        using var httpClient = new HttpClient(handler);
+        using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient(httpClient);
+        var clipboardService = new ClipboardSelectionService();
+        var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
+        using var trayHost = new TrayIconHost();
+        var notificationService = new TrayNotificationService(trayHost);
+
+        using var orchestrator = new SpeechOrchestrator(
+            settingsStore,
+            clipboardService,
+            ttsClient,
+            chatClient,
+            localTtsService,
+            audioService,
+            trayHost,
+            notificationService);
+
+        var states = new List<TrayIconState>();
+        orchestrator.StateChanged += s => states.Add(s);
+
+        await orchestrator.SpeakOrSummarizeCapturedAsync("A long passage that should be summarized before speech.");
+
+        Assert.True(chatSeen);
+        Assert.Equal("Brief summary.", speechInput);
+        Assert.Contains(TrayIconState.Summarizing, states);
+        Assert.Contains(TrayIconState.Synthesizing, states);
+        Assert.Contains(TrayIconState.Speaking, states);
     }
 
     [Fact]

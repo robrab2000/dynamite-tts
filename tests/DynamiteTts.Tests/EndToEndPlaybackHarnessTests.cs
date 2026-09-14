@@ -56,8 +56,9 @@ public class EndToEndPlaybackHarnessTests
                 var engine = new LocalTtsService { AutoDownloadGpuRuntime = false };
                 var audio = new AudioPlaybackService();
                 var lemonade = new LemonadeTtsClient();
+                var chat = new LemonadeChatClient();
                 var orchestrator = new SpeechOrchestrator(
-                    store, new ClipboardSelectionService(), lemonade, engine, audio, trayHost, new TrayNotificationService(trayHost));
+                    store, new ClipboardSelectionService(), lemonade, chat, engine, audio, trayHost, new TrayNotificationService(trayHost));
 
                 var clock = Stopwatch.StartNew();
                 orchestrator.StateChanged += state =>

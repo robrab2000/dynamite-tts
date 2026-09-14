@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:DynamiteTts.UI.Controls"
         Title="Dynamite TTS Settings"
-        Height="720" Width="540"
-        MinHeight="600" MinWidth="480"
+        Height="820" Width="540"
+        MinHeight="640" MinWidth="480"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}"
@@ -215,6 +215,50 @@
 
                         <Label Content="Global Shortcut (Highlight to Speak)" />
                         <controls:HotkeyCaptureBox x:Name="HotkeyCaptureControl" Margin="0,0,0,14" />
+
+                        <Label Content="Toggle Summary / Verbatim Mode" />
+                        <controls:HotkeyCaptureBox x:Name="ModeToggleHotkeyCaptureControl" Margin="0,0,0,10" />
+
+                        <Label Content="Speak Mode" Target="{Binding ElementName=SpeakModeComboBox}" />
+                        <ComboBox x:Name="SpeakModeComboBox" Margin="0,0,0,14">
+                            <ComboBoxItem Content="Verbatim — read the selection as-is" Tag="Verbatim" IsSelected="True" />
+                            <ComboBoxItem Content="Summary — summarize locally via Lemonade, then speak" Tag="Summary" />
+                        </ComboBox>
+
+                        <Border Background="{DynamicResource InputBackgroundBrush}"
+                                CornerRadius="4"
+                                Padding="10"
+                                Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Summary Mode (local Lemonade LLM)"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           Margin="0,0,0,8" />
+                                <TextBlock Text="Uses Lemonade's chat API on this machine. Required only when Speak Mode is Summary; TTS can still be in-process Kokoro."
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10" />
+
+                                <Label Content="Chat Endpoint" Target="{Binding ElementName=ChatEndpointTextBox}" Padding="0" Margin="0,0,0,4" />
+                                <TextBox x:Name="ChatEndpointTextBox" Margin="0,0,0,8" />
+
+                                <Label Content="Summary Model" Target="{Binding ElementName=SummaryModelComboBox}" Padding="0" Margin="0,0,0,4" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="SummaryModelComboBox" IsEditable="True" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1"
+                                            Content="Refresh"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Margin="8,0,0,0"
+                                            Click="OnRefreshSummaryModelsClick" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
 
                         <CheckBox x:Name="PlaySoundOnStopCheckBox"
                                   Content="Play audio chime when stopping speech"

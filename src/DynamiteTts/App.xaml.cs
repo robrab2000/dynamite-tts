@@ -18,6 +18,7 @@ public partial class App : Application
     private TrayIconHost? _trayHost;
     private TrayNotificationService? _notificationService;
     private LemonadeTtsClient? _ttsClient;
+    private LemonadeChatClient? _chatClient;
     private LocalTtsService? _localTtsService;
     private CudaDeviceService? _deviceService;
     private LocalEngineState _lastNotifiedEngineState = LocalEngineState.NotInitialized;
@@ -82,6 +83,7 @@ public partial class App : Application
         _trayHost = new TrayIconHost();
         _notificationService = new TrayNotificationService(_trayHost);
         _ttsClient = new LemonadeTtsClient();
+        _chatClient = new LemonadeChatClient();
         _localTtsService = new LocalTtsService();
         _deviceService = new CudaDeviceService();
         _localTtsService.StatusChanged += OnLocalEngineStatusChanged;
@@ -95,6 +97,7 @@ public partial class App : Application
             _settingsStore,
             _clipboardService,
             _ttsClient,
+            _chatClient,
             _localTtsService,
             _audioPlaybackService,
             _trayHost,
@@ -119,11 +122,11 @@ public partial class App : Application
             _notificationService.ShowWarning("Shortcut Conflict", msg);
         };
 
-        // 3. Register Global Hotkey
+        // 3. Register Global Hotkeys (speak + mode toggle)
         var settings = _settingsStore.Current;
-        if (!_hotkeyService.TryRegister(settings.Hotkey, out var hotkeyError))
+        if (!_hotkeyService.TryRegisterPair(settings.Hotkey, settings.ModeToggleHotkey, out var hotkeyError))
         {
-            _notificationService.ShowWarning("Shortcut Registration", hotkeyError ?? "Could not register default shortcut.");
+            _notificationService.ShowWarning("Shortcut Registration", hotkeyError ?? "Could not register shortcuts.");
         }
 
         // 4. Sync Startup Registration if needed
@@ -136,6 +139,7 @@ public partial class App : Application
         _settingsWindow = new SettingsWindow(
             _settingsStore,
             _ttsClient,
+            _chatClient,
             _hotkeyService,
             _deviceService,
             _audioDeviceService,
@@ -218,9 +222,17 @@ public partial class App : Application
         });
     }
 
-    private async void OnHotkeyPressed()
+    private async void OnHotkeyPressed(int hotkeyId)
     {
-        if (_orchestrator != null)
+        if (_orchestrator == null) return;
+
+        if (hotkeyId == HotkeyService.ModeToggleHotkeyId)
+        {
+            _orchestrator.ToggleSpeakMode();
+            return;
+        }
+
+        if (hotkeyId == HotkeyService.SpeakHotkeyId)
         {
             await _orchestrator.SpeakSelectionAsync();
         }

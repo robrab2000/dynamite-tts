@@ -14,9 +14,9 @@ namespace DynamiteTts.UI;
 
 /// <summary>
 /// Small always-on-top status pill (in the style of Handy's recording bubble) centred at the top of
-/// the monitor you are working on. Shows "Reading selection…", "Synthesizing…" and "Speaking" with
-/// animated level bars, has a stop button, and never takes keyboard focus, so it cannot interfere
-/// with the Ctrl+C selection capture or with typing in the foreground app.
+/// the monitor you are working on. Shows "Reading selection…", "Summarizing…", "Synthesizing…" and
+/// "Speaking" with animated level bars, has a stop button, and never takes keyboard focus, so it
+/// cannot interfere with the Ctrl+C selection capture or with typing in the foreground app.
 /// Call <see cref="ShowState"/> and <see cref="ShowNotice"/> on the UI thread.
 /// </summary>
 public partial class StatusBubbleWindow : Window
@@ -106,6 +106,9 @@ public partial class StatusBubbleWindow : Window
         {
             case TrayIconState.Capturing:
                 SetContent("Reading selection…", "TextSecondaryBrush", showStop: false);
+                break;
+            case TrayIconState.Summarizing:
+                SetContent("Summarizing…", "WarningBrush", showStop: true);
                 break;
             case TrayIconState.Synthesizing:
                 SetContent("Synthesizing…", "WarningBrush", showStop: true);

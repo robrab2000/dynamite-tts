@@ -11,6 +11,10 @@ public class AppSettings
     public double Speed { get; set; } = 1.0;
     public string ResponseFormat { get; set; } = "mp3";
     public HotkeyConfig Hotkey { get; set; } = HotkeyConfig.Default;
+    public HotkeyConfig ModeToggleHotkey { get; set; } = HotkeyConfig.ModeToggleDefault;
+    public SpeakMode SpeakMode { get; set; } = SpeakMode.Verbatim;
+    public string ChatEndpoint { get; set; } = "http://localhost:13305/api/v1/chat/completions";
+    public string SummaryModel { get; set; } = string.Empty;
     public string AudioDeviceId { get; set; } = string.Empty; // Empty string = System Default Device
     public bool RunAtStartup { get; set; } = false;
     public bool PlaySoundOnStop { get; set; } = true;
@@ -36,6 +40,14 @@ public class AppSettings
                 Modifiers = Hotkey.Modifiers,
                 Key = Hotkey.Key
             },
+            ModeToggleHotkey = new HotkeyConfig
+            {
+                Modifiers = ModeToggleHotkey.Modifiers,
+                Key = ModeToggleHotkey.Key
+            },
+            SpeakMode = SpeakMode,
+            ChatEndpoint = ChatEndpoint,
+            SummaryModel = SummaryModel,
             AudioDeviceId = AudioDeviceId,
             RunAtStartup = RunAtStartup,
             PlaySoundOnStop = PlaySoundOnStop,

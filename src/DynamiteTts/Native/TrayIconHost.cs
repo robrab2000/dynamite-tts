@@ -25,7 +25,7 @@ public sealed class TrayIconHost : IDisposable
     private IntPtr _hIconActive;
     private IntPtr _hIconSpeaking;
 
-    public event Action? HotkeyPressed;
+    public event Action<int>? HotkeyPressed;
     public event Action? StopRequested;
     public event Action? SettingsRequested;
     public event Action? RefreshModelsRequested;
@@ -144,6 +144,7 @@ public sealed class TrayIconHost : IDisposable
         var (hIcon, tip) = state switch
         {
             TrayIconState.Capturing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Reading selection...)"),
+            TrayIconState.Summarizing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Summarizing...)"),
             TrayIconState.Synthesizing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Synthesizing...)"),
             TrayIconState.Speaking => (_hIconSpeaking != IntPtr.Zero ? _hIconSpeaking : _hIconActive, "Dynamite TTS (Speaking...)"),
             _ => (_hIconIdle, "Dynamite TTS (Ready)")
@@ -257,7 +258,7 @@ public sealed class TrayIconHost : IDisposable
                 return IntPtr.Zero;
 
             case NativeMethods.WM_HOTKEY:
-                HotkeyPressed?.Invoke();
+                HotkeyPressed?.Invoke(wParam.ToInt32());
                 return IntPtr.Zero;
 
             case NativeMethods.WM_DESTROY:

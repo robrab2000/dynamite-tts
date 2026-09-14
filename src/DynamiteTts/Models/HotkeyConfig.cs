@@ -26,6 +26,12 @@ public class HotkeyConfig : IEquatable<HotkeyConfig>
         Key = Key.S
     };
 
+    public static HotkeyConfig ModeToggleDefault => new()
+    {
+        Modifiers = HotkeyModifiers.Control | HotkeyModifiers.Shift,
+        Key = Key.M
+    };
+
     public uint GetWin32Modifiers(bool noRepeat = true)
     {
         uint mods = NativeMethods.MOD_NONE;

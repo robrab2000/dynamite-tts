@@ -16,6 +16,7 @@ public partial class SettingsWindow : Window
 {
     private readonly AppSettingsStore _settingsStore;
     private readonly LemonadeTtsClient _ttsClient;
+    private readonly LemonadeChatClient _chatClient;
     private readonly HotkeyService _hotkeyService;
     private readonly CudaDeviceService _deviceService;
     private readonly AudioDeviceService _audioDeviceService;
@@ -29,6 +30,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(
         AppSettingsStore settingsStore,
         LemonadeTtsClient ttsClient,
+        LemonadeChatClient chatClient,
         HotkeyService hotkeyService,
         CudaDeviceService deviceService,
         AudioDeviceService audioDeviceService,
@@ -41,6 +43,7 @@ public partial class SettingsWindow : Window
 
         _settingsStore = settingsStore;
         _ttsClient = ttsClient;
+        _chatClient = chatClient;
         _hotkeyService = hotkeyService;
         _deviceService = deviceService;
         _audioDeviceService = audioDeviceService;
@@ -50,9 +53,15 @@ public partial class SettingsWindow : Window
         _notificationService = notificationService;
 
         _orchestrator.StateChanged += OnOrchestratorStateChanged;
+        _orchestrator.SpeakModeChanged += OnSpeakModeChanged;
         _orchestrator.LocalEngine.StatusChanged += OnLocalEngineStatusChanged;
 
         Loaded += OnLoaded;
+    }
+
+    private void OnSpeakModeChanged(SpeakMode mode)
+    {
+        Dispatcher.BeginInvoke(() => SelectSpeakMode(mode));
     }
 
     private void OnLocalEngineStatusChanged(string _)
@@ -134,6 +143,15 @@ public partial class SettingsWindow : Window
                     SpeechActivityTextBlock.Foreground = (Brush)FindResource("TextSecondaryBrush");
                     break;
 
+                case TrayIconState.Summarizing:
+                    SpeechActivityPanel.Visibility = Visibility.Visible;
+                    SpeechActivityDot.Fill = (Brush)FindResource("WarningBrush");
+                    SpeechActivityTextBlock.Text = "Summarizing...";
+                    SpeechActivityTextBlock.Foreground = (Brush)FindResource("WarningBrush");
+                    TestSpeechButton.Content = "⏹ Stop Speech";
+                    PreviewVoiceButton.Content = "⏹ Stop";
+                    break;
+
                 case TrayIconState.Synthesizing:
                     SpeechActivityPanel.Visibility = Visibility.Visible;
                     SpeechActivityDot.Fill = (Brush)FindResource("WarningBrush");
@@ -170,6 +188,7 @@ public partial class SettingsWindow : Window
         PopulateFromSettings(_settingsStore.Current);
         UpdateLocalEngineStatus();
         await RefreshModelsAsync();
+        await RefreshSummaryModelsAsync();
         await CheckConnectionAsync();
     }
 
@@ -306,6 +325,10 @@ public partial class SettingsWindow : Window
         SpeedSlider.Value = settings.Speed;
         SpeedValueTextBlock.Text = $"{settings.Speed:F2}x";
         HotkeyCaptureControl.Hotkey = settings.Hotkey;
+        ModeToggleHotkeyCaptureControl.Hotkey = settings.ModeToggleHotkey;
+        SelectSpeakMode(settings.SpeakMode);
+        ChatEndpointTextBox.Text = settings.ChatEndpoint;
+        SummaryModelComboBox.Text = settings.SummaryModel;
         PlaySoundOnStopCheckBox.IsChecked = settings.PlaySoundOnStop;
         ShowStatusBubbleCheckBox.IsChecked = settings.ShowStatusBubble;
         LaunchAtStartupCheckBox.IsChecked = _startupService.IsStartupEnabled();
@@ -429,6 +452,12 @@ public partial class SettingsWindow : Window
             Speed = Math.Round(SpeedSlider.Value, 2),
             ResponseFormat = "mp3",
             Hotkey = HotkeyCaptureControl.Hotkey ?? _settingsStore.Current.Hotkey,
+            ModeToggleHotkey = ModeToggleHotkeyCaptureControl.Hotkey ?? _settingsStore.Current.ModeToggleHotkey,
+            SpeakMode = GetSelectedSpeakMode(),
+            ChatEndpoint = string.IsNullOrWhiteSpace(ChatEndpointTextBox.Text)
+                ? _settingsStore.Current.ChatEndpoint
+                : ChatEndpointTextBox.Text.Trim(),
+            SummaryModel = SummaryModelComboBox.Text.Trim(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
@@ -658,7 +687,8 @@ public partial class SettingsWindow : Window
         }
 
         var newHotkey = HotkeyCaptureControl.Hotkey ?? HotkeyConfig.Default;
-        if (!_hotkeyService.TryRegister(newHotkey, out var hotkeyError))
+        var modeToggleHotkey = ModeToggleHotkeyCaptureControl.Hotkey ?? HotkeyConfig.ModeToggleDefault;
+        if (!_hotkeyService.TryRegisterPair(newHotkey, modeToggleHotkey, out var hotkeyError))
         {
             MessageBox.Show(this, $"{hotkeyError}\nPlease select a different shortcut key combination.", "Shortcut Conflict", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -678,6 +708,10 @@ public partial class SettingsWindow : Window
         var isStartup = LaunchAtStartupCheckBox.IsChecked == true;
         _startupService.SetStartupEnabled(isStartup);
 
+        var chatEndpoint = ChatEndpointTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(chatEndpoint))
+            chatEndpoint = "http://localhost:13305/api/v1/chat/completions";
+
         var newSettings = new AppSettings
         {
             SpeechEndpoint = endpoint,
@@ -686,6 +720,10 @@ public partial class SettingsWindow : Window
             Speed = Math.Round(SpeedSlider.Value, 2),
             ResponseFormat = "mp3",
             Hotkey = newHotkey,
+            ModeToggleHotkey = modeToggleHotkey,
+            SpeakMode = GetSelectedSpeakMode(),
+            ChatEndpoint = chatEndpoint,
+            SummaryModel = SummaryModelComboBox.Text.Trim(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
@@ -722,13 +760,80 @@ public partial class SettingsWindow : Window
     {
         if (e.Key == Key.Escape)
         {
-            if (!HotkeyCaptureControl.IsCapturing)
+            if (!HotkeyCaptureControl.IsCapturing && !ModeToggleHotkeyCaptureControl.IsCapturing)
             {
                 _orchestrator.Stop();
                 PopulateFromSettings(_settingsStore.Current);
                 Hide();
                 e.Handled = true;
             }
+        }
+    }
+
+    private void SelectSpeakMode(SpeakMode mode)
+    {
+        if (SpeakModeComboBox == null) return;
+        foreach (ComboBoxItem item in SpeakModeComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), mode.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                SpeakModeComboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private SpeakMode GetSelectedSpeakMode()
+    {
+        var tag = (SpeakModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return string.Equals(tag, nameof(SpeakMode.Summary), StringComparison.OrdinalIgnoreCase)
+            ? SpeakMode.Summary
+            : SpeakMode.Verbatim;
+    }
+
+    private async void OnRefreshSummaryModelsClick(object sender, RoutedEventArgs e)
+    {
+        await RefreshSummaryModelsAsync();
+    }
+
+    private async Task RefreshSummaryModelsAsync()
+    {
+        try
+        {
+            var endpoint = string.IsNullOrWhiteSpace(ChatEndpointTextBox.Text)
+                ? _settingsStore.Current.ChatEndpoint
+                : ChatEndpointTextBox.Text.Trim();
+
+            var models = await _chatClient.GetModelsAsync(endpoint);
+            var currentText = SummaryModelComboBox.Text;
+            if (string.IsNullOrEmpty(currentText))
+                currentText = _settingsStore.Current.SummaryModel;
+
+            SummaryModelComboBox.Items.Clear();
+            foreach (var model in models.Where(m => !LemonadeChatClient.IsLikelyTtsModel(m.Id)))
+            {
+                SummaryModelComboBox.Items.Add(model.Id);
+            }
+
+            foreach (var model in models.Where(m => LemonadeChatClient.IsLikelyTtsModel(m.Id)))
+            {
+                SummaryModelComboBox.Items.Add(model.Id);
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentText))
+            {
+                SummaryModelComboBox.Text = currentText;
+            }
+            else
+            {
+                var picked = LemonadeChatClient.PickChatModel(models, preferred: null);
+                if (!string.IsNullOrEmpty(picked))
+                    SummaryModelComboBox.Text = picked;
+            }
+        }
+        catch
+        {
+            // Non-fatal; leave the current text
         }
     }
 }

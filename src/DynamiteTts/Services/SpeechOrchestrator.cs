@@ -36,6 +36,7 @@ public class SpeechOrchestrator : IDisposable
     private readonly AppSettingsStore _settingsStore;
     private readonly ClipboardSelectionService _clipboardService;
     private readonly LemonadeTtsClient _ttsClient;
+    private readonly LemonadeChatClient _chatClient;
     private readonly LocalTtsService _localTtsService;
     private readonly AudioPlaybackService _audioService;
     private readonly TrayIconHost _trayHost;
@@ -56,12 +57,17 @@ public class SpeechOrchestrator : IDisposable
     /// <summary>Short user-facing notices such as "No text selected".</summary>
     public event Action<string>? Notice;
 
+    /// <summary>Raised when SpeakMode is toggled or changed.</summary>
+    public event Action<SpeakMode>? SpeakModeChanged;
+
     /// <summary>Raised after every speak request with its timings.</summary>
     public event Action<PipelineMetrics>? PipelineCompleted;
 
     public PipelineMetrics? LastMetrics { get; private set; }
 
     public TrayIconState CurrentState { get; private set; } = TrayIconState.Idle;
+
+    public SpeakMode CurrentSpeakMode => _settingsStore.Current.SpeakMode;
 
     public bool IsBusy
     {
@@ -78,6 +84,7 @@ public class SpeechOrchestrator : IDisposable
         AppSettingsStore settingsStore,
         ClipboardSelectionService clipboardService,
         LemonadeTtsClient ttsClient,
+        LemonadeChatClient chatClient,
         LocalTtsService localTtsService,
         AudioPlaybackService audioService,
         TrayIconHost trayHost,
@@ -86,6 +93,7 @@ public class SpeechOrchestrator : IDisposable
         _settingsStore = settingsStore;
         _clipboardService = clipboardService;
         _ttsClient = ttsClient;
+        _chatClient = chatClient;
         _localTtsService = localTtsService;
         _audioService = audioService;
         _trayHost = trayHost;
@@ -126,6 +134,22 @@ public class SpeechOrchestrator : IDisposable
         UpdateState(TrayIconState.Idle);
     }
 
+    public void ToggleSpeakMode()
+    {
+        var settings = _settingsStore.Current;
+        settings.SpeakMode = settings.SpeakMode == SpeakMode.Summary
+            ? SpeakMode.Verbatim
+            : SpeakMode.Summary;
+        _settingsStore.Save(settings);
+
+        var label = settings.SpeakMode == SpeakMode.Summary ? "Mode: Summary" : "Mode: Verbatim";
+        AppLog.Info($"speak mode -> {settings.SpeakMode}");
+        RaiseNotice(label);
+
+        try { SpeakModeChanged?.Invoke(settings.SpeakMode); }
+        catch (Exception ex) { AppLog.Warn("SpeakModeChanged handler failed", ex); }
+    }
+
     public async Task SpeakSelectionAsync()
     {
         var settings = _settingsStore.Current;
@@ -146,7 +170,7 @@ public class SpeechOrchestrator : IDisposable
             AppLog.Warn("Selection capture failed", ex);
             capturedText = null;
         }
-        AppLog.Info($"hotkey: captured {capturedText?.Length ?? 0} chars in {clock.ElapsedMilliseconds} ms (busy before: {wasBusy})");
+        AppLog.Info($"hotkey: captured {capturedText?.Length ?? 0} chars in {clock.ElapsedMilliseconds} ms (busy before: {wasBusy}, mode: {settings.SpeakMode})");
 
         // 2. If nothing is selected
         if (string.IsNullOrWhiteSpace(capturedText))
@@ -179,9 +203,95 @@ public class SpeechOrchestrator : IDisposable
             return;
         }
 
-        // 4. New selection or not busy: speak the new selection
+        // 4. New selection or not busy: optionally summarize, then speak
+        await SpeakOrSummarizeCapturedAsync(capturedText);
+    }
+
+    /// <summary>Speaks (or summarizes then speaks) already-captured text. Used by the hotkey path and tests.</summary>
+    public async Task SpeakOrSummarizeCapturedAsync(string capturedText)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(capturedText);
+
+        var settings = _settingsStore.Current;
         _lastSpokenText = capturedText;
-        await StartPipelineAsync(textToSpeak: capturedText, overrideSettings: null);
+        var textToSpeak = capturedText;
+
+        if (settings.SpeakMode == SpeakMode.Summary)
+        {
+            CancellationTokenSource summarizeCts;
+            lock (_lock)
+            {
+                CancelCurrentPipeline();
+                _currentCts = new CancellationTokenSource();
+                summarizeCts = _currentCts;
+            }
+
+            UpdateState(TrayIconState.Summarizing);
+            var summarizeClock = Stopwatch.StartNew();
+            try
+            {
+                textToSpeak = await _chatClient.SummarizeAsync(
+                    settings.ChatEndpoint,
+                    settings.SummaryModel,
+                    capturedText,
+                    summarizeCts.Token);
+
+                AppLog.Info($"summarize: {capturedText.Length} chars -> {textToSpeak.Length} chars in {summarizeClock.ElapsedMilliseconds} ms");
+
+                if (string.IsNullOrWhiteSpace(textToSpeak))
+                {
+                    lock (_lock)
+                    {
+                        if (ReferenceEquals(_currentCts, summarizeCts))
+                        {
+                            _currentCts = null;
+                            _lastSpokenText = null;
+                            UpdateState(TrayIconState.Idle);
+                        }
+                    }
+                    RaiseNotice("Summary was empty");
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                lock (_lock)
+                {
+                    if (ReferenceEquals(_currentCts, summarizeCts))
+                    {
+                        _currentCts = null;
+                        _lastSpokenText = null;
+                        UpdateState(TrayIconState.Idle);
+                    }
+                }
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Summarization failed", ex);
+                lock (_lock)
+                {
+                    if (ReferenceEquals(_currentCts, summarizeCts))
+                    {
+                        _currentCts = null;
+                        _lastSpokenText = null;
+                        UpdateState(TrayIconState.Idle);
+                    }
+                }
+
+                // Raise notice after Idle so the status bubble will show it (notices are ignored while busy).
+                var shortNotice = ex.Message.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("cannot summarize", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("TTS models", StringComparison.OrdinalIgnoreCase)
+                    ? "Need a Lemonade chat LLM"
+                    : "Summary failed";
+                RaiseNotice(shortNotice);
+                _notificationService.ShowError("Dynamite TTS Summary", ex.Message);
+                return;
+            }
+        }
+
+        await StartPipelineAsync(textToSpeak: textToSpeak, overrideSettings: null);
     }
 
     public Task SpeakTextAsync(string text, AppSettings? overrideSettings = null)
@@ -479,6 +589,7 @@ public class SpeechOrchestrator : IDisposable
         _isDisposed = true;
         Stop();
         _ttsClient.Dispose();
+        _chatClient.Dispose();
         _localTtsService.Dispose();
         _audioService.Dispose();
     }

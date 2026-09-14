@@ -4,6 +4,7 @@ public enum TrayIconState
 {
     Idle,
     Capturing,
+    Summarizing,
     Synthesizing,
     Speaking
 }
