@@ -30,20 +30,25 @@ jobs:
         shell: pwsh
         run: ./publish.ps1
 
-      - name: Upload release asset
+      - name: Publish GitHub Release
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $zip = Get-ChildItem artifacts/DynamiteTts-win-x64-v*.zip | Select-Object -First 1
           if (-not $zip) { throw "Release zip not found under artifacts/" }
-          gh release create "${{ github.ref_name }}" `
-            $zip.FullName `
-            --title "Dynamite TTS ${{ github.ref_name }}" `
-            --notes @"
+          $tag = "${{ github.ref_name }}"
+          $notes = @"
           Unsigned Windows self-contained build ($($zip.Name)).
 
           SmartScreen may warn until the app is code-signed — More info → Run anyway.
 
           Keep the ``voices`` folder next to ``DynamiteTts.exe``. The Kokoro model downloads on first use if not bundled.
           "@
+          # Create the release, or replace assets if it already exists (e.g. manual local upload).
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip.FullName --clobber
+          } else {
+            gh release create $tag $zip.FullName --title "Dynamite TTS $tag" --notes $notes
+          }
