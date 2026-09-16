@@ -91,7 +91,7 @@ public partial class App : Application
         _audioPlaybackService = new AudioPlaybackService();
         _clipboardService = new ClipboardSelectionService();
         _startupService = new StartupRegistrationService();
-        _dependencyService = new LemonadeDependencyService();
+        _dependencyService = new LemonadeDependencyService(_chatClient);
 
         _orchestrator = new SpeechOrchestrator(
             _settingsStore,
@@ -101,7 +101,8 @@ public partial class App : Application
             _localTtsService,
             _audioPlaybackService,
             _trayHost,
-            _notificationService);
+            _notificationService,
+            _dependencyService);
 
         // Handy-style status pill at the top of the screen while capturing, synthesizing and speaking.
         _statusBubble = new StatusBubbleWindow(() => _audioPlaybackService?.OutputLevel ?? 0f);
@@ -114,6 +115,10 @@ public partial class App : Application
         _orchestrator.Notice += message => Dispatcher.BeginInvoke(() =>
         {
             if (_settingsStore?.Current.ShowStatusBubble != false) _statusBubble?.ShowNotice(message);
+        });
+        _orchestrator.ProgressMessage += message => Dispatcher.BeginInvoke(() =>
+        {
+            if (_settingsStore?.Current.ShowStatusBubble != false) _statusBubble?.SetBusyText(message);
         });
 
         _hotkeyService = new HotkeyService(_trayHost.Handle);

@@ -126,6 +126,16 @@ public partial class StatusBubbleWindow : Window
         FadeIn();
     }
 
+    /// <summary>Updates the label while busy (e.g. downloading a Lemonade summary model).</summary>
+    public void SetBusyText(string message)
+    {
+        if (_state is not (TrayIconState.Summarizing or TrayIconState.Synthesizing or TrayIconState.Capturing))
+            return;
+        if (string.IsNullOrWhiteSpace(message)) return;
+        StatusText.Text = message.Trim();
+        FadeIn();
+    }
+
     /// <summary>Briefly shows a message (e.g. "No text selected") when nothing else is in progress.</summary>
     public void ShowNotice(string message)
     {

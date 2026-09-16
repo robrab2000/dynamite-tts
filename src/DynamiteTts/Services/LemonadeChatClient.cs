@@ -145,8 +145,10 @@ public class LemonadeChatClient : IDisposable
                 ? "Lemonade currently has no models loaded."
                 : "Lemonade only has TTS models (" + string.Join(", ", models.Select(m => m.Id)) + ").";
             throw new InvalidOperationException(
-                available + " Summary mode needs a chat LLM in Lemonade Server " +
-                "(for example: lemonade pull Qwen2.5-0.5B-Instruct, then lemonade run Qwen2.5-0.5B-Instruct).");
+                available + " Summary mode needs a chat LLM in Lemonade Server. " +
+                "Dynamite can install the default model automatically; or run: lemonade pull " +
+                LemonadeDependencyService.DefaultChatModelId + ", then lemonade load " +
+                LemonadeDependencyService.DefaultChatModelId + ".");
         }
 
         if (!string.IsNullOrWhiteSpace(requestedModel) &&

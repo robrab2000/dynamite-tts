@@ -2,7 +2,7 @@
 ; Built by publish.ps1 (pass /DMyAppVersion=x.y.z)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.1.1"
 #endif
 
 #define MyAppName "Dynamite TTS"
@@ -23,6 +23,7 @@ DefaultDirName={localappdata}\Programs\DynamiteTTS
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE
+InfoBeforeFile=Dependencies.txt
 OutputDir=..\artifacts
 OutputBaseFilename=DynamiteTts-Setup-v{#MyAppVersion}
 SetupIconFile=..\src\DynamiteTts\Resources\app_idle.ico
@@ -45,10 +46,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Messages]
 WindowsVersionNotSupported=Dynamite TTS requires Windows 10 version 1809 (October 2018) or newer, or Windows 11.
 OnlyOnTheseArchitectures=Dynamite TTS requires a 64-bit version of Windows.
+InfoBeforeLabel=Dependencies and optional components
+InfoBeforeClickLabel=Please review what will be installed. On the next page you can opt out of Lemonade Server (Summary mode only).
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "startupicon"; Description: "Start Dynamite TTS when I sign in to Windows"; GroupDescription: "Startup:"
+Name: "installlemonade"; Description: "Install Lemonade Server (needed for Summary mode; opt out if you only want Verbatim TTS)"; GroupDescription: "Optional components:"
 
 [Files]
 ; Published app payload (exe, voices, kokoro.onnx). Strip debug/link leftovers.
@@ -68,10 +72,34 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
   Flags: uninsdeletevalue; Tasks: startupicon
 
 [Run]
+; Optional Lemonade via winget (non-fatal if it fails — Settings can retry).
+Filename: "{cmd}"; \
+  Parameters: "/c winget install AMD.LemonadeServer --accept-package-agreements --accept-source-agreements --silent"; \
+  StatusMsg: "Installing Lemonade Server (Summary mode)…"; \
+  Flags: runhidden waituntilterminated; \
+  Tasks: installlemonade; \
+  Check: ShouldInstallLemonade
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
   Flags: nowait postinstall skipifsilent; WorkingDir: "{app}"
 
 [Code]
+function LemonadeCliExists(): Boolean;
+begin
+  Result :=
+    FileExists(ExpandConstant('{localappdata}\Programs\Lemonade\lemonade-server.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\Lemonade\lemonade.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\LemonadeServer\lemonade-server.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\LemonadeServer\lemonade.exe')) or
+    FileExists(ExpandConstant('{pf}\Lemonade\lemonade-server.exe')) or
+    FileExists(ExpandConstant('{pf}\AMD\Lemonade\lemonade-server.exe'));
+end;
+
+function ShouldInstallLemonade(): Boolean;
+begin
+  { Skip winget when Lemonade is already present. }
+  Result := not LemonadeCliExists();
+end;
+
 function InitializeSetup(): Boolean;
 var
   Version: TWindowsVersion;

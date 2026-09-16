@@ -37,6 +37,7 @@ public class SpeechOrchestrator : IDisposable
     private readonly ClipboardSelectionService _clipboardService;
     private readonly LemonadeTtsClient _ttsClient;
     private readonly LemonadeChatClient _chatClient;
+    private readonly LemonadeDependencyService _dependencyService;
     private readonly LocalTtsService _localTtsService;
     private readonly AudioPlaybackService _audioService;
     private readonly TrayIconHost _trayHost;
@@ -56,6 +57,9 @@ public class SpeechOrchestrator : IDisposable
 
     /// <summary>Short user-facing notices such as "No text selected".</summary>
     public event Action<string>? Notice;
+
+    /// <summary>Busy-path status text (e.g. downloading summary model). May fire on any thread.</summary>
+    public event Action<string>? ProgressMessage;
 
     /// <summary>Raised when SpeakMode is toggled or changed.</summary>
     public event Action<SpeakMode>? SpeakModeChanged;
@@ -88,7 +92,8 @@ public class SpeechOrchestrator : IDisposable
         LocalTtsService localTtsService,
         AudioPlaybackService audioService,
         TrayIconHost trayHost,
-        TrayNotificationService notificationService)
+        TrayNotificationService notificationService,
+        LemonadeDependencyService? dependencyService = null)
     {
         _settingsStore = settingsStore;
         _clipboardService = clipboardService;
@@ -98,6 +103,7 @@ public class SpeechOrchestrator : IDisposable
         _audioService = audioService;
         _trayHost = trayHost;
         _notificationService = notificationService;
+        _dependencyService = dependencyService ?? new LemonadeDependencyService(chatClient);
     }
 
     private void UpdateState(TrayIconState state)
@@ -230,9 +236,31 @@ public class SpeechOrchestrator : IDisposable
             var summarizeClock = Stopwatch.StartNew();
             try
             {
-                textToSpeak = await _chatClient.SummarizeAsync(
+                var progress = new Progress<string>(msg =>
+                {
+                    if (!string.IsNullOrWhiteSpace(msg))
+                        RaiseProgress(msg);
+                });
+
+                var modelId = await _dependencyService.EnsureChatModelAsync(
                     settings.ChatEndpoint,
                     settings.SummaryModel,
+                    progress,
+                    summarizeCts.Token);
+
+                if (string.IsNullOrWhiteSpace(settings.SummaryModel) ||
+                    !string.Equals(settings.SummaryModel, modelId, StringComparison.OrdinalIgnoreCase))
+                {
+                    var updated = settings.Clone();
+                    updated.SummaryModel = modelId;
+                    _settingsStore.Save(updated);
+                    settings = updated;
+                }
+
+                RaiseProgress("Summarizing…");
+                textToSpeak = await _chatClient.SummarizeAsync(
+                    settings.ChatEndpoint,
+                    modelId,
                     capturedText,
                     summarizeCts.Token);
 
@@ -280,13 +308,16 @@ public class SpeechOrchestrator : IDisposable
                 }
 
                 // Raise notice after Idle so the status bubble will show it (notices are ignored while busy).
-                var shortNotice = ex.Message.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
+                var shortNotice = ex.Message.Contains("Lemonade", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
                                   ex.Message.Contains("cannot summarize", StringComparison.OrdinalIgnoreCase) ||
                                   ex.Message.Contains("TTS models", StringComparison.OrdinalIgnoreCase)
-                    ? "Need a Lemonade chat LLM"
+                    ? "Need Lemonade for Summary"
                     : "Summary failed";
                 RaiseNotice(shortNotice);
-                _notificationService.ShowError("Dynamite TTS Summary", ex.Message);
+                // Balloons truncate; keep title short and put the actionable detail in the body start.
+                var balloon = ex.Message.Length <= 220 ? ex.Message : ex.Message[..220] + "…";
+                _notificationService.ShowError("Dynamite TTS Summary", balloon);
                 return;
             }
         }
@@ -309,6 +340,12 @@ public class SpeechOrchestrator : IDisposable
         }
         _lastSpokenText = text;
         return StartPipelineAsync(textToSpeak: text, overrideSettings: settings);
+    }
+
+    private void RaiseProgress(string message)
+    {
+        try { ProgressMessage?.Invoke(message); }
+        catch (Exception ex) { AppLog.Warn("ProgressMessage handler failed", ex); }
     }
 
     private void RaiseNotice(string message)

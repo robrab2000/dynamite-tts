@@ -114,7 +114,7 @@
 
                             <!-- Action bar when offline -->
                             <StackPanel x:Name="OfflineActionPanel" Visibility="Collapsed" Margin="0,10,0,0">
-                                <TextBlock Text="Lemonade Server is needed when using Server mode." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="Lemonade Server is needed for Summary mode (and for Server-mode TTS). In-process Kokoro Verbatim speech does not require it." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
                                 <StackPanel Orientation="Horizontal">
                                     <Button x:Name="StartServerButton"
                                             Content="Start Lemonade Server"
@@ -235,7 +235,7 @@
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            Margin="0,0,0,8" />
-                                <TextBlock Text="Uses Lemonade's chat API on this machine. Required only when Speak Mode is Summary; TTS can still be in-process Kokoro."
+                                <TextBlock Text="Uses Lemonade's chat API on this machine. Required for Speak Mode → Summary even when TTS is in-process Kokoro. Verbatim mode does not need Lemonade. A small default chat model is downloaded automatically on first Summary use."
                                            FontSize="11"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                            TextWrapping="Wrap"
@@ -249,6 +249,7 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox x:Name="SummaryModelComboBox" IsEditable="True" VerticalAlignment="Center" />
                                     <Button Grid.Column="1"
@@ -256,6 +257,13 @@
                                             Style="{StaticResource SecondaryButton}"
                                             Margin="8,0,0,0"
                                             Click="OnRefreshSummaryModelsClick" />
+                                    <Button Grid.Column="2"
+                                            x:Name="EnsureSummaryModelButton"
+                                            Content="Get default model"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Margin="8,0,0,0"
+                                            ToolTip="Download and load the default small Lemonade chat model (CPU-friendly)"
+                                            Click="OnEnsureSummaryModelClick" />
                                 </Grid>
                             </StackPanel>
                         </Border>

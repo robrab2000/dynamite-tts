@@ -115,14 +115,20 @@ DynamiteTts.sln
 ## Install (prebuilt)
 
 1. Download **`DynamiteTts-Setup-v*.exe`** from [Releases](https://github.com/robrab2000/dynamite-tts/releases) (preferred), or the portable `.zip`.
-2. Run the installer — it checks for 64-bit Windows 10 1809+ / Windows 11, installs to `%LocalAppData%\Programs\DynamiteTTS`, adds a Start Menu shortcut, and can start Dynamite TTS at sign-in.
-3. When setup finishes, choose **Launch Dynamite TTS** (default). The tray icon appears; highlight text and press the speak hotkey (`Ctrl+Shift+S` by default).
+2. Run the installer — it explains dependencies, checks for 64-bit Windows 10 1809+ / Windows 11, and installs to `%LocalAppData%\Programs\DynamiteTTS`.
+3. On the optional-components page, **Lemonade Server is checked by default** (needed for Summary mode). Uncheck it if you only want Verbatim TTS.
+4. When setup finishes, choose **Launch Dynamite TTS**. The tray icon appears; highlight text and press the speak hotkey (`Ctrl+Shift+S` by default).
 
-The installer is self-contained (no separate .NET runtime). It bundles the Kokoro model and voices so speech works immediately. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use. Summary mode needs a separate [Lemonade Server](https://lemonade-server.ai) install.
+The installer is self-contained (no separate .NET runtime). It bundles the Kokoro model and voices so Verbatim speech works immediately. The first time you use **Summary** mode, Dynamite downloads a small default Lemonade chat model (`Qwen2.5-0.5B-Instruct`) if needed. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use.
+
+### Hardware
+
+- **Verbatim (Kokoro):** any supported Windows x64 PC (CPU; NVIDIA GPU optional).
+- **Summary (Lemonade):** needs Lemonade Server plus enough RAM for a small local LLM. AMD NPU/GPU is optional and only speeds things up — not required for the default tiny model.
 
 **SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**.
 
-Portable zip users: unzip somewhere permanent, keep `voices` (and `kokoro.onnx` if present) next to `DynamiteTts.exe`, then run the exe.
+Portable zip users: unzip somewhere permanent, keep `voices` (and `kokoro.onnx` if present) next to `DynamiteTts.exe`, then run the exe. Install Lemonade separately if you want Summary mode.
 
 ---
 

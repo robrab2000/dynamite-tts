@@ -231,6 +231,14 @@ public class SpeechOrchestratorTests : IDisposable
             Handler = req =>
             {
                 var path = req.RequestUri!.AbsolutePath;
+                if (path.EndsWith("/models"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":[{"id":"Qwen2.5-0.5B-Instruct"},{"id":"kokoro-v1"}]}""")
+                    };
+                }
+
                 if (path.EndsWith("/chat/completions"))
                 {
                     chatSeen = true;
@@ -258,6 +266,7 @@ public class SpeechOrchestratorTests : IDisposable
         using var httpClient = new HttpClient(handler);
         using var ttsClient = new LemonadeTtsClient(httpClient);
         using var chatClient = new LemonadeChatClient(httpClient);
+        var dependencyService = new LemonadeDependencyService(chatClient, httpClient);
         var clipboardService = new ClipboardSelectionService();
         var audioService = new AudioPlaybackService();
         using var localTtsService = new LocalTtsService();
@@ -272,7 +281,8 @@ public class SpeechOrchestratorTests : IDisposable
             localTtsService,
             audioService,
             trayHost,
-            notificationService);
+            notificationService,
+            dependencyService);
 
         var states = new List<TrayIconState>();
         orchestrator.StateChanged += s => states.Add(s);

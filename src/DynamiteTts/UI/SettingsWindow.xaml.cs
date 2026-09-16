@@ -558,7 +558,10 @@ public partial class SettingsWindow : Window
 
         try
         {
-            var started = await _dependencyService.TryStartLemonadeServerAsync();
+            var chatEndpoint = ChatEndpointTextBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(chatEndpoint))
+                chatEndpoint = "http://localhost:13305/api/v1/chat/completions";
+            var started = await _dependencyService.TryStartLemonadeServerAsync(chatEndpoint);
             if (started)
             {
                 for (int i = 0; i < 5; i++)
@@ -594,7 +597,7 @@ public partial class SettingsWindow : Window
             if (installed)
             {
                 StatusTextBlock.Text = "Installation complete. Starting server...";
-                await _dependencyService.TryStartLemonadeServerAsync();
+                await _dependencyService.TryStartLemonadeServerAsync(ChatEndpointTextBox.Text.Trim());
                 await Task.Delay(3000);
                 await CheckConnectionAsync();
                 await RefreshModelsAsync();
@@ -794,6 +797,39 @@ public partial class SettingsWindow : Window
     private async void OnRefreshSummaryModelsClick(object sender, RoutedEventArgs e)
     {
         await RefreshSummaryModelsAsync();
+    }
+
+    private async void OnEnsureSummaryModelClick(object sender, RoutedEventArgs e)
+    {
+        EnsureSummaryModelButton.IsEnabled = false;
+        var endpoint = ChatEndpointTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(endpoint))
+            endpoint = "http://localhost:13305/api/v1/chat/completions";
+
+        try
+        {
+            StatusTextBlock.Text = "Ensuring Lemonade summary model…";
+            var progress = new Progress<string>(msg =>
+            {
+                Dispatcher.BeginInvoke(() => StatusTextBlock.Text = msg);
+            });
+
+            var preferred = SummaryModelComboBox.Text.Trim();
+            var modelId = await _dependencyService.EnsureChatModelAsync(endpoint, preferred, progress);
+            SummaryModelComboBox.Text = modelId;
+            await RefreshSummaryModelsAsync();
+            StatusTextBlock.Text = $"Summary model ready: {modelId}";
+            _notificationService.ShowInfo("Summary model", $"Lemonade chat model '{modelId}' is ready.");
+        }
+        catch (Exception ex)
+        {
+            StatusTextBlock.Text = "Could not prepare summary model";
+            MessageBox.Show(this, ex.Message, "Summary model", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            EnsureSummaryModelButton.IsEnabled = true;
+        }
     }
 
     private async Task RefreshSummaryModelsAsync()

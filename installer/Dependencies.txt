@@ -1,0 +1,21 @@
+Dynamite TTS — what this installer includes
+
+INCLUDED (always)
+• Dynamite TTS tray app (self-contained; no separate .NET install)
+• Kokoro voices + speech model for local text-to-speech (Verbatim mode works offline after install)
+
+OPTIONAL (next page — you can opt out)
+• Lemonade Server (AMD) — only needed for Summary mode (summarize selection, then speak).
+  Installed via winget if you leave the option checked. The small default chat model is
+  downloaded later, the first time you use Summary mode (not during this Setup).
+
+LATER / ON DEMAND (not installed here)
+• NVIDIA CUDA runtime (~1 GB) — downloaded once if you enable GPU-accelerated speech
+• Larger Lemonade chat models — you can pull them yourself in Lemonade if you want
+
+Hardware notes
+• Verbatim (Kokoro) works on any supported 64-bit Windows 10/11 PC (CPU; GPU optional).
+• Summary needs Lemonade + enough RAM for a small local LLM. AMD NPU/GPU is optional
+  and only makes summarization faster — it is not required for the default tiny model.
+
+Privacy: spoken/summarized text stays on this machine when using local Kokoro and local Lemonade.
