@@ -114,11 +114,15 @@ DynamiteTts.sln
 
 ## Install (prebuilt)
 
-1. Download the latest `DynamiteTts-win-x64-*.zip` from [Releases](https://github.com/robrab2000/dynamite-tts/releases).
-2. Unzip somewhere permanent and run `DynamiteTts.exe`. Keep the `voices` folder next to the exe.
-3. On first use the Kokoro model downloads into `%LocalAppData%\DynamiteTts\models` if it is not already beside the exe. NVIDIA CUDA runtime (~1 GB) may download later if you enable GPU acceleration.
+1. Download **`DynamiteTts-Setup-v*.exe`** from [Releases](https://github.com/robrab2000/dynamite-tts/releases) (preferred), or the portable `.zip`.
+2. Run the installer — it checks for 64-bit Windows 10 1809+ / Windows 11, installs to `%LocalAppData%\Programs\DynamiteTTS`, adds a Start Menu shortcut, and can start Dynamite TTS at sign-in.
+3. When setup finishes, choose **Launch Dynamite TTS** (default). The tray icon appears; highlight text and press the speak hotkey (`Ctrl+Shift+S` by default).
 
-**SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**. Code signing can be added later.
+The installer is self-contained (no separate .NET runtime). It bundles the Kokoro model and voices so speech works immediately. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use. Summary mode needs a separate [Lemonade Server](https://lemonade-server.ai) install.
+
+**SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**.
+
+Portable zip users: unzip somewhere permanent, keep `voices` (and `kokoro.onnx` if present) next to `DynamiteTts.exe`, then run the exe.
 
 ---
 
@@ -133,7 +137,7 @@ dotnet run --project src/DynamiteTts/DynamiteTts.csproj
 ```powershell
 ./publish.ps1
 ```
-The self-contained `DynamiteTts.exe` will be generated in `artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (when present in the repo root). Keep those next to the executable. If the model file is missing, the app downloads it once into `%LocalAppData%\DynamiteTts\models`. The script also writes `artifacts/DynamiteTts-win-x64-<version>.zip` for GitHub Releases.
+The self-contained `DynamiteTts.exe` will be generated in `artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (downloaded during publish when missing). `publish.ps1` also writes `artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `artifacts/DynamiteTts-Setup-v<version>.exe`.
 
 ---
 

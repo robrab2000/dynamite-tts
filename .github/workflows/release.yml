@@ -20,6 +20,9 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
       - name: Restore
         run: dotnet restore DynamiteTts.sln
 
@@ -36,19 +39,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $zip = Get-ChildItem artifacts/DynamiteTts-win-x64-v*.zip | Select-Object -First 1
+          $setup = Get-ChildItem artifacts/DynamiteTts-Setup-v*.exe | Select-Object -First 1
           if (-not $zip) { throw "Release zip not found under artifacts/" }
+          if (-not $setup) { throw "Setup.exe not found under artifacts/ (is Inno Setup installed?)" }
+
           $tag = "${{ github.ref_name }}"
           $notes = @"
-          Unsigned Windows self-contained build ($($zip.Name)).
+          ## Install
+          Prefer **``$($setup.Name)``** — installs to ``%LocalAppData%\Programs\DynamiteTTS``, adds a Start Menu shortcut, optionally starts at sign-in, then launches the app.
 
-          SmartScreen may warn until the app is code-signed — More info → Run anyway.
+          Portable zip: ``$($zip.Name)`` (same files, no installer).
 
-          Keep the ``voices`` folder next to ``DynamiteTts.exe``. The Kokoro model downloads on first use if not bundled.
+          ## Notes
+          - Builds are **unsigned**; SmartScreen may warn — More info → Run anyway.
+          - Requires 64-bit Windows 10 1809+ or Windows 11.
+          - Self-contained (no separate .NET install). The Kokoro voice model is bundled so speech works on first launch.
+          - Optional GPU acceleration may download the CUDA runtime (~1 GB) on first use.
+          - Summary mode still needs a local [Lemonade Server](https://lemonade-server.ai) install.
           "@
-          # Create the release, or replace assets if it already exists (e.g. manual local upload).
+
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $zip.FullName --clobber
+            gh release upload $tag $setup.FullName $zip.FullName --clobber
           } else {
-            gh release create $tag $zip.FullName --title "Dynamite TTS $tag" --notes $notes
+            gh release create $tag $setup.FullName $zip.FullName --title "Dynamite TTS $tag" --notes $notes
           }
