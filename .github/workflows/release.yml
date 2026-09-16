@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore DynamiteTts.sln
+
+      - name: Test
+        run: dotnet test DynamiteTts.sln -c Release --no-restore
+
+      - name: Publish
+        shell: pwsh
+        run: ./publish.ps1
+
+      - name: Upload release asset
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $zip = Get-ChildItem artifacts/DynamiteTts-win-x64-v*.zip | Select-Object -First 1
+          if (-not $zip) { throw "Release zip not found under artifacts/" }
+          gh release create "${{ github.ref_name }}" `
+            $zip.FullName `
+            --title "Dynamite TTS ${{ github.ref_name }}" `
+            --notes @"
+          Unsigned Windows self-contained build ($($zip.Name)).
+
+          SmartScreen may warn until the app is code-signed — More info → Run anyway.
+
+          Keep the ``voices`` folder next to ``DynamiteTts.exe``. The Kokoro model downloads on first use if not bundled.
+          "@

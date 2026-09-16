@@ -107,12 +107,22 @@ DynamiteTts.sln
 ## Prerequisites
 
 - Windows 10 (1809+) or Windows 11 (x64)
-- [.NET 9.0 SDK](https://dotnet.microsoft.com/) (for building from source)
-- Local [Lemonade Server](https://lemonade-server.ai) running on `http://localhost:13305` (or compatible OpenAI TTS endpoint)
+- [.NET 9.0 SDK](https://dotnet.microsoft.com/) (for building from source only)
+- Optional: local [Lemonade Server](https://lemonade-server.ai) on `http://localhost:13305` for Summary mode or Lemonade-server TTS (default in-process Kokoro does not need it)
 
 ---
 
-## Quick Start
+## Install (prebuilt)
+
+1. Download the latest `DynamiteTts-win-x64-*.zip` from [Releases](https://github.com/robrab2000/dynamite-tts/releases).
+2. Unzip somewhere permanent and run `DynamiteTts.exe`. Keep the `voices` folder next to the exe.
+3. On first use the Kokoro model downloads into `%LocalAppData%\DynamiteTts\models` if it is not already beside the exe. NVIDIA CUDA runtime (~1 GB) may download later if you enable GPU acceleration.
+
+**SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**. Code signing can be added later.
+
+---
+
+## Quick Start (from source)
 
 ### 1. Build and Run
 ```powershell
@@ -123,7 +133,7 @@ dotnet run --project src/DynamiteTts/DynamiteTts.csproj
 ```powershell
 ./publish.ps1
 ```
-The self-contained `DynamiteTts.exe` will be generated in `artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (when present in the repo root). Keep those next to the executable. If the model file is missing, the app downloads it once into `%LocalAppData%\DynamiteTts\models`.
+The self-contained `DynamiteTts.exe` will be generated in `artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (when present in the repo root). Keep those next to the executable. If the model file is missing, the app downloads it once into `%LocalAppData%\DynamiteTts\models`. The script also writes `artifacts/DynamiteTts-win-x64-<version>.zip` for GitHub Releases.
 
 ---
 

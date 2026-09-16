@@ -9,6 +9,8 @@
     <ApplicationIcon>Resources\app_idle.ico</ApplicationIcon>
     <RootNamespace>DynamiteTts</RootNamespace>
     <AssemblyName>DynamiteTts</AssemblyName>
+    <Version>0.1.0</Version>
+    <InformationalVersion>0.1.0</InformationalVersion>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
