@@ -199,7 +199,8 @@ public class LemonadeChatClient : IDisposable
         {
             throw new InvalidOperationException(
                 $"Cannot connect to Lemonade Server at {resolvedChatUrl}. " +
-                "Summary mode needs a local Lemonade LLM. Start Lemonade Server from Settings, then try again.",
+                "Lemonade is not running. Dynamite will try to start it automatically; " +
+                "or open Lemonade Server from the Start menu, then try again.",
                 ex);
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -34,12 +35,65 @@ public class LemonadeDependencyService
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("DynamiteTts/1.0");
     }
 
-    public bool IsLemonadeCliAvailable() => FindLemonadeExecutable() != null;
+    public bool IsLemonadeCliAvailable() =>
+        FindLemonadeServerExecutable() != null || FindLemonadeCliExecutable() != null;
 
-    /// <summary>Prefers <c>lemonade-server.exe</c>, then <c>lemonade.exe</c>.</summary>
-    public string? FindLemonadeExecutable()
+    /// <summary>
+    /// Prefer the current server binary (<c>LemonadeServer.exe</c>), then legacy
+    /// <c>lemonade-server.exe</c>, then the CLI (<c>lemonade.exe</c>).
+    /// </summary>
+    public string? FindLemonadeExecutable() =>
+        FindLemonadeServerExecutable() ?? FindLemonadeCliExecutable();
+
+    /// <summary>HTTP server process for current Lemonade installs.</summary>
+    public string? FindLemonadeServerExecutable()
     {
-        return FindNamedExecutable("lemonade-server.exe") ?? FindNamedExecutable("lemonade.exe");
+        var server = FindNamedExecutable("LemonadeServer.exe")
+                     ?? FindNamedExecutable("lemonade-server.exe");
+        if (server != null) return server;
+
+        // Winget layout: lemonade.exe (CLI) and LemonadeServer.exe share a bin folder.
+        var cli = FindNamedExecutable("lemonade.exe");
+        if (cli != null)
+        {
+            var dir = Path.GetDirectoryName(cli);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                foreach (var name in new[] { "LemonadeServer.exe", "lemonade-server.exe" })
+                {
+                    var sibling = Path.Combine(dir, name);
+                    if (File.Exists(sibling)) return sibling;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>CLI client used for <c>pull</c>/<c>load</c> (not the HTTP server).</summary>
+    public string? FindLemonadeCliExecutable() => FindNamedExecutable("lemonade.exe");
+
+    /// <summary>
+    /// True when <paramref name="exePath"/> is the dedicated server binary (no <c>serve</c> subcommand).
+    /// </summary>
+    public static bool IsServerExecutable(string? exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath)) return false;
+        var name = Path.GetFileName(exePath);
+        return name.Equals("LemonadeServer.exe", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("lemonade-server.exe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Arguments for launching Lemonade. Current <c>LemonadeServer.exe</c> uses <c>--silent</c>
+    /// (same as the Windows Startup shortcut); older all-in-one CLIs used <c>serve --no-tray</c>.
+    /// </summary>
+    public static string BuildServerStartArguments(string exePath, int port)
+    {
+        if (IsServerExecutable(exePath))
+            return "--silent";
+
+        return $"serve --no-tray --port {port}";
     }
 
     private static string? FindNamedExecutable(string fileName)
@@ -51,16 +105,7 @@ public class LemonadeDependencyService
             if (File.Exists(fullPath)) return fullPath;
         }
 
-        var commonDirs = new[]
-        {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Lemonade"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "LemonadeServer"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Lemonade"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "LemonadeServer"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "AMD", "Lemonade")
-        };
-
-        foreach (var dir in commonDirs)
+        foreach (var dir in GetLemonadeSearchDirectories())
         {
             var candidate = Path.Combine(dir, fileName);
             if (File.Exists(candidate)) return candidate;
@@ -69,14 +114,32 @@ public class LemonadeDependencyService
         return null;
     }
 
+    internal static IEnumerable<string> GetLemonadeSearchDirectories()
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        return
+        [
+            Path.Combine(local, "lemonade_server", "bin"),
+            Path.Combine(local, "Programs", "Lemonade"),
+            Path.Combine(local, "Programs", "LemonadeServer"),
+            Path.Combine(local, "Programs", "lemonade_server", "bin"),
+            Path.Combine(programFiles, "Lemonade"),
+            Path.Combine(programFiles, "LemonadeServer"),
+            Path.Combine(programFiles, "AMD", "Lemonade"),
+            Path.Combine(programFiles, "lemonade_server", "bin")
+        ];
+    }
+
     /// <summary>
-    /// Starts the Lemonade HTTP API without forcing a TTS model. Uses <c>serve --no-tray</c>.
+    /// Starts the Lemonade HTTP API without forcing a TTS model.
+    /// Current installs: launch <c>LemonadeServer.exe</c>. Legacy: <c>lemonade serve --no-tray</c>.
     /// </summary>
     public async Task<bool> TryStartLemonadeServerAsync(
         string? chatEndpoint = null,
         CancellationToken cancellationToken = default)
     {
-        var exe = FindLemonadeExecutable();
+        var exe = FindLemonadeServerExecutable() ?? FindLemonadeCliExecutable();
         if (exe == null) return false;
 
         try
@@ -85,18 +148,35 @@ public class LemonadeDependencyService
             var psi = new ProcessStartInfo
             {
                 FileName = exe,
-                Arguments = $"serve --no-tray --port {port}",
+                Arguments = BuildServerStartArguments(exe, port),
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden
             };
+            psi.Environment["LEMONADE_PORT"] = port.ToString();
 
-            Process.Start(psi);
+            AppLog.Info($"Starting Lemonade via '{exe}' {psi.Arguments} (port {port})");
+            var process = Process.Start(psi);
+            if (process == null)
+            {
+                AppLog.Warn("Lemonade Process.Start returned null");
+                return false;
+            }
+
             await Task.Delay(ServeWarmup, cancellationToken);
+
+            // Bad CLI args (e.g. legacy `serve`) exit immediately; do not report a successful start.
+            if (process.HasExited)
+            {
+                AppLog.Warn($"Lemonade exited immediately with code {process.ExitCode} ({exe})");
+                return false;
+            }
+
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            AppLog.Warn("Failed to start Lemonade Server", ex);
             return false;
         }
     }
@@ -207,7 +287,8 @@ public class LemonadeDependencyService
             if (!ready)
             {
                 throw new InvalidOperationException(
-                    "Could not reach Lemonade Server after starting it. Open Lemonade manually, then try Summary again.");
+                    "Lemonade Server is not running and could not be started automatically. " +
+                    "Open “Lemonade Server” from the Start menu (or run LemonadeServer.exe), then try Summary again.");
             }
         }
 
@@ -314,7 +395,7 @@ public class LemonadeDependencyService
 
     private async Task<bool> RunLemonadeCliCoreAsync(string arguments, bool throwOnFailure, CancellationToken cancellationToken)
     {
-        var exe = FindLemonadeExecutable();
+        var exe = FindLemonadeCliExecutable() ?? FindLemonadeServerExecutable();
         if (exe == null)
         {
             if (throwOnFailure)

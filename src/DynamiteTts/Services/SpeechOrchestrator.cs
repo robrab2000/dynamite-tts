@@ -308,21 +308,61 @@ public class SpeechOrchestrator : IDisposable
                 }
 
                 // Raise notice after Idle so the status bubble will show it (notices are ignored while busy).
-                var shortNotice = ex.Message.Contains("Lemonade", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("cannot summarize", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("TTS models", StringComparison.OrdinalIgnoreCase)
-                    ? "Need Lemonade for Summary"
-                    : "Summary failed";
+                var shortNotice = FormatSummaryFailureNotice(ex);
                 RaiseNotice(shortNotice);
-                // Balloons truncate; keep title short and put the actionable detail in the body start.
+                // Balloons truncate; keep title aligned with the bubble and put detail in the body.
                 var balloon = ex.Message.Length <= 220 ? ex.Message : ex.Message[..220] + "…";
-                _notificationService.ShowError("Dynamite TTS Summary", balloon);
+                _notificationService.ShowError(shortNotice, balloon);
                 return;
             }
         }
 
         await StartPipelineAsync(textToSpeak: textToSpeak, overrideSettings: null);
+    }
+
+    /// <summary>Short status-bubble / balloon title for Summary-mode failures.</summary>
+    public static string FormatSummaryFailureNotice(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        if (IsLemonadeNotRunningFailure(ex))
+            return "Lemonade not running";
+
+        if (msg.Contains("not installed", StringComparison.OrdinalIgnoreCase))
+            return "Install Lemonade for Summary";
+
+        if (msg.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("cannot summarize", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("TTS models", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("no chat LLM", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("no models", StringComparison.OrdinalIgnoreCase))
+            return "Need a Lemonade chat model";
+
+        if (msg.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            return "Lemonade timed out";
+
+        if (msg.Contains("Lemonade", StringComparison.OrdinalIgnoreCase))
+            return "Lemonade Summary error";
+
+        return "Summary failed";
+    }
+
+    public static bool IsLemonadeNotRunningFailure(Exception ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            var msg = current.Message ?? string.Empty;
+            if (msg.Contains("Cannot connect to Lemonade", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("is not running", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("could not be started", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("Could not reach Lemonade", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("actively refused", StringComparison.OrdinalIgnoreCase) ||
+                msg.Contains("No connection could be made", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public Task SpeakTextAsync(string text, AppSettings? overrideSettings = null)

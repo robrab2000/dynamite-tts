@@ -306,6 +306,27 @@ public class SpeechOrchestratorTests : IDisposable
         Assert.Null(ex);
     }
 
+    [Theory]
+    [InlineData("Cannot connect to Lemonade Server at http://localhost:13305/api/v1/chat/completions. Lemonade is not running.", "Lemonade not running")]
+    [InlineData("Lemonade Server is not running and could not be started automatically. Open Lemonade Server from the Start menu.", "Lemonade not running")]
+    [InlineData("Lemonade Server is not installed. Summary mode needs it.", "Install Lemonade for Summary")]
+    [InlineData("Lemonade only has TTS models (kokoro-v1). Summary mode needs a chat LLM.", "Need a Lemonade chat model")]
+    [InlineData("Lemonade Server at http://localhost:13305 timed out while summarizing.", "Lemonade timed out")]
+    [InlineData("Something unrelated went wrong.", "Summary failed")]
+    public void FormatSummaryFailureNotice_MapsActionableMessages(string message, string expected)
+    {
+        Assert.Equal(expected, SpeechOrchestrator.FormatSummaryFailureNotice(new InvalidOperationException(message)));
+    }
+
+    [Fact]
+    public void FormatSummaryFailureNotice_DetectsConnectionRefusedViaInnerException()
+    {
+        var inner = new System.Net.Http.HttpRequestException(
+            "No connection could be made because the target machine actively refused it. (localhost:13305)");
+        var outer = new InvalidOperationException("Cannot connect to Lemonade Server at http://localhost:13305/api/v1/chat/completions.", inner);
+        Assert.Equal("Lemonade not running", SpeechOrchestrator.FormatSummaryFailureNotice(outer));
+    }
+
     public void Dispose()
     {
         try

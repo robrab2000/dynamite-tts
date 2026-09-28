@@ -86,12 +86,18 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
 function LemonadeCliExists(): Boolean;
 begin
   Result :=
+    FileExists(ExpandConstant('{localappdata}\lemonade_server\bin\LemonadeServer.exe')) or
+    FileExists(ExpandConstant('{localappdata}\lemonade_server\bin\lemonade.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\Lemonade\lemonade-server.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\Lemonade\lemonade.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\Lemonade\LemonadeServer.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\LemonadeServer\lemonade-server.exe')) or
     FileExists(ExpandConstant('{localappdata}\Programs\LemonadeServer\lemonade.exe')) or
+    FileExists(ExpandConstant('{localappdata}\Programs\LemonadeServer\LemonadeServer.exe')) or
     FileExists(ExpandConstant('{pf}\Lemonade\lemonade-server.exe')) or
-    FileExists(ExpandConstant('{pf}\AMD\Lemonade\lemonade-server.exe'));
+    FileExists(ExpandConstant('{pf}\Lemonade\LemonadeServer.exe')) or
+    FileExists(ExpandConstant('{pf}\AMD\Lemonade\lemonade-server.exe')) or
+    FileExists(ExpandConstant('{pf}\AMD\Lemonade\LemonadeServer.exe'));
 end;
 
 function ShouldInstallLemonade(): Boolean;

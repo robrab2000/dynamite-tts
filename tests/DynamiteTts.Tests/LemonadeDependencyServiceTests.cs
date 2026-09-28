@@ -23,4 +23,34 @@ public class LemonadeDependencyServiceTests
     {
         Assert.Equal(expected, LemonadeDependencyService.TryGetPort(endpoint));
     }
+
+    [Theory]
+    [InlineData(@"C:\Apps\LemonadeServer.exe", true)]
+    [InlineData(@"C:\Apps\lemonade-server.exe", true)]
+    [InlineData(@"C:\Apps\lemonade.exe", false)]
+    [InlineData(null, false)]
+    public void IsServerExecutable_DetectsServerBinary(string? path, bool expected)
+    {
+        Assert.Equal(expected, LemonadeDependencyService.IsServerExecutable(path));
+    }
+
+    [Fact]
+    public void BuildServerStartArguments_UsesSilentForCurrentServerBinary()
+    {
+        Assert.Equal("--silent",
+            LemonadeDependencyService.BuildServerStartArguments(@"C:\Apps\LemonadeServer.exe", 13305));
+        Assert.Equal("--silent",
+            LemonadeDependencyService.BuildServerStartArguments(@"C:\Apps\LemonadeServer.exe", 8123));
+    }
+
+    [Fact]
+    public void BuildServerStartArguments_UsesLegacyServeForCli()
+    {
+        Assert.Equal(
+            "serve --no-tray --port 13305",
+            LemonadeDependencyService.BuildServerStartArguments(@"C:\Apps\lemonade.exe", 13305));
+        Assert.Equal(
+            "serve --no-tray --port 8123",
+            LemonadeDependencyService.BuildServerStartArguments(@"C:\Apps\lemonade.exe", 8123));
+    }
 }
