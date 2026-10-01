@@ -27,7 +27,11 @@ jobs:
         run: dotnet restore DynamiteTts.sln
 
       - name: Test
-        run: dotnet test DynamiteTts.sln -c Release --no-restore
+        # Skip hardware-bound suites: CI runners have no audio devices, and Perf/E2E
+        # harnesses need local speakers + models that are gitignored (*.mp3 / *.onnx).
+        run: >
+          dotnet test DynamiteTts.sln -c Release --no-restore
+          --filter "Category!=Perf&FullyQualifiedName!~AudioPlaybackServiceTests&FullyQualifiedName!~PlayStopChime"
 
       - name: Publish
         shell: pwsh
