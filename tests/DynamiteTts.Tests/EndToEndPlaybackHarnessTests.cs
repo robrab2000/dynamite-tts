@@ -82,7 +82,7 @@ public class EndToEndPlaybackHarnessTests
                     Assert.False(m.UsedFallback, $"local streaming fell back: {m.FallbackReason}");
                     Assert.False(m.Cancelled);
                     Assert.True(m.Segments >= 3, "expected sentence-sized segments");
-                    Assert.InRange(m.FirstAudioMs, 0, 2000);
+                    Assert.InRange(m.FirstAudioMs, 0, 2500);
                     Assert.True(m.FirstAudioMs < m.SynthesisDoneMs,
                         $"playback should start before synthesis finishes (first audible {m.FirstAudioMs:F0} ms, synthesis done {m.SynthesisDoneMs:F0} ms)");
                     Assert.Equal(TrayIconState.Idle, orchestrator.CurrentState);

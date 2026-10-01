@@ -1,6 +1,6 @@
 ﻿using System;
+using System.Drawing;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using DynamiteTts.Models;
 
@@ -18,12 +18,17 @@ public sealed class TrayIconHost : IDisposable
     private readonly string _windowClassName;
     private readonly NativeMethods.WndProc _wndProcDelegate;
     private readonly uint _singleInstanceMsg;
+    private readonly uint _taskbarCreatedMsg;
     private IntPtr _hWnd;
     private bool _isDisposed;
 
-    private IntPtr _hIconIdle;
-    private IntPtr _hIconActive;
-    private IntPtr _hIconSpeaking;
+    // Keep Icon instances alive for the lifetime of the tray host.
+    // System.Drawing.Icon.Dispose() destroys the underlying HICON, so returning
+    // icon.Handle from a using-block leaves Shell_NotifyIcon with a dangling
+    // handle — which shows up as an empty slot in the notification area.
+    private Icon? _iconIdle;
+    private Icon? _iconActive;
+    private Icon? _iconSpeaking;
 
     public event Action<int>? HotkeyPressed;
     public event Action? StopRequested;
@@ -38,11 +43,16 @@ public sealed class TrayIconHost : IDisposable
         _windowClassName = $"DynamiteTts_TrayHost_{Guid.NewGuid():N}";
         _wndProcDelegate = CustomWndProc;
         _singleInstanceMsg = NativeMethods.RegisterWindowMessage("DynamiteTts_ShowSettings");
+        _taskbarCreatedMsg = NativeMethods.RegisterWindowMessage("TaskbarCreated");
 
         LoadIcons();
         CreateHostWindow();
         AddTrayIcon();
     }
+
+    private IntPtr IdleIconHandle => _iconIdle?.Handle ?? IntPtr.Zero;
+    private IntPtr ActiveIconHandle => _iconActive?.Handle ?? IdleIconHandle;
+    private IntPtr SpeakingIconHandle => _iconSpeaking?.Handle ?? ActiveIconHandle;
 
     private void LoadIcons()
     {
@@ -51,32 +61,31 @@ public sealed class TrayIconHost : IDisposable
         var activePath = Path.Combine(baseDir, "Resources", "app_active.ico");
         var speakingPath = Path.Combine(baseDir, "Resources", "app_speaking.ico");
 
-        _hIconIdle = LoadIconFromFile(idlePath);
-        _hIconActive = LoadIconFromFile(activePath);
-        _hIconSpeaking = LoadIconFromFile(speakingPath);
+        _iconIdle = LoadIconFromFile(idlePath);
+        _iconActive = LoadIconFromFile(activePath);
+        _iconSpeaking = LoadIconFromFile(speakingPath);
 
-        if (_hIconIdle == IntPtr.Zero)
+        if (_iconIdle is null)
         {
-            // Fallback to application icon
+            // Fallback to application icon — keep the Icon instance so its handle stays valid.
             var exePath = Environment.ProcessPath;
             if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
             {
-                _hIconIdle = System.Drawing.Icon.ExtractAssociatedIcon(exePath)?.Handle ?? IntPtr.Zero;
+                _iconIdle = Icon.ExtractAssociatedIcon(exePath);
             }
         }
     }
 
-    private static IntPtr LoadIconFromFile(string path)
+    private static Icon? LoadIconFromFile(string path)
     {
-        if (!File.Exists(path)) return IntPtr.Zero;
+        if (!File.Exists(path)) return null;
         try
         {
-            using var icon = new System.Drawing.Icon(path);
-            return icon.Handle;
+            return new Icon(path);
         }
         catch
         {
-            return IntPtr.Zero;
+            return null;
         }
     }
 
@@ -130,7 +139,7 @@ public sealed class TrayIconHost : IDisposable
             uID = TrayIconId,
             uFlags = NativeMethods.NIF_MESSAGE | NativeMethods.NIF_ICON | NativeMethods.NIF_TIP,
             uCallbackMessage = NativeMethods.WM_TRAYICON,
-            hIcon = _hIconIdle,
+            hIcon = IdleIconHandle,
             szTip = "Dynamite TTS (Ready)"
         };
 
@@ -143,11 +152,11 @@ public sealed class TrayIconHost : IDisposable
 
         var (hIcon, tip) = state switch
         {
-            TrayIconState.Capturing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Reading selection...)"),
-            TrayIconState.Summarizing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Summarizing...)"),
-            TrayIconState.Synthesizing => (_hIconActive != IntPtr.Zero ? _hIconActive : _hIconIdle, "Dynamite TTS (Synthesizing...)"),
-            TrayIconState.Speaking => (_hIconSpeaking != IntPtr.Zero ? _hIconSpeaking : _hIconActive, "Dynamite TTS (Speaking...)"),
-            _ => (_hIconIdle, "Dynamite TTS (Ready)")
+            TrayIconState.Capturing => (ActiveIconHandle, "Dynamite TTS (Reading selection...)"),
+            TrayIconState.Summarizing => (ActiveIconHandle, "Dynamite TTS (Summarizing...)"),
+            TrayIconState.Synthesizing => (ActiveIconHandle, "Dynamite TTS (Synthesizing...)"),
+            TrayIconState.Speaking => (SpeakingIconHandle, "Dynamite TTS (Speaking...)"),
+            _ => (IdleIconHandle, "Dynamite TTS (Ready)")
         };
 
         var nid = new NativeMethods.NOTIFYICONDATA
@@ -243,6 +252,13 @@ public sealed class TrayIconHost : IDisposable
             return IntPtr.Zero;
         }
 
+        // Explorer recreates the notification area after a crash/restart; re-add our icon.
+        if (_taskbarCreatedMsg != 0 && msg == _taskbarCreatedMsg)
+        {
+            AddTrayIcon();
+            return IntPtr.Zero;
+        }
+
         switch (msg)
         {
             case NativeMethods.WM_TRAYICON:
@@ -286,5 +302,12 @@ public sealed class TrayIconHost : IDisposable
             NativeMethods.DestroyWindow(_hWnd);
             _hWnd = IntPtr.Zero;
         }
+
+        _iconIdle?.Dispose();
+        _iconActive?.Dispose();
+        _iconSpeaking?.Dispose();
+        _iconIdle = null;
+        _iconActive = null;
+        _iconSpeaking = null;
     }
 }
