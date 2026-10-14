@@ -114,7 +114,7 @@
 
                             <!-- Action bar when offline -->
                             <StackPanel x:Name="OfflineActionPanel" Visibility="Collapsed" Margin="0,10,0,0">
-                                <TextBlock Text="Lemonade Server is needed for Summary mode (and for Server-mode TTS). In-process Kokoro Verbatim speech does not require it." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="Lemonade Server is needed for Summary / Explain modes (and for Server-mode TTS). In-process Kokoro Verbatim speech does not require it." FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
                                 <StackPanel Orientation="Horizontal">
                                     <Button x:Name="StartServerButton"
                                             Content="Start Lemonade Server"
@@ -216,13 +216,14 @@
                         <Label Content="Global Shortcut (Highlight to Speak)" />
                         <controls:HotkeyCaptureBox x:Name="HotkeyCaptureControl" Margin="0,0,0,14" />
 
-                        <Label Content="Toggle Summary / Verbatim Mode" />
+                        <Label Content="Toggle Speak Mode (Verbatim / Summary / Explain)" />
                         <controls:HotkeyCaptureBox x:Name="ModeToggleHotkeyCaptureControl" Margin="0,0,0,10" />
 
                         <Label Content="Speak Mode" Target="{Binding ElementName=SpeakModeComboBox}" />
                         <ComboBox x:Name="SpeakModeComboBox" Margin="0,0,0,14">
                             <ComboBoxItem Content="Verbatim — read the selection as-is" Tag="Verbatim" IsSelected="True" />
                             <ComboBoxItem Content="Summary — summarize locally via Lemonade, then speak" Tag="Summary" />
+                            <ComboBoxItem Content="Explain — explain the selection locally via Lemonade, then speak" Tag="Explain" />
                         </ComboBox>
 
                         <Border Background="{DynamicResource InputBackgroundBrush}"
@@ -230,12 +231,12 @@
                                 Padding="10"
                                 Margin="0,0,0,14">
                             <StackPanel>
-                                <TextBlock Text="Summary Mode (local Lemonade LLM)"
+                                <TextBlock Text="Summary / Explain (local Lemonade LLM)"
                                            FontSize="12"
                                            FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            Margin="0,0,0,8" />
-                                <TextBlock Text="Uses Lemonade's chat API on this machine. Required for Speak Mode → Summary even when TTS is in-process Kokoro. Verbatim mode does not need Lemonade. A small default chat model is downloaded automatically on first Summary use."
+                                <TextBlock Text="Uses Lemonade's chat API on this machine. Required for Speak Mode → Summary or Explain even when TTS is in-process Kokoro. Verbatim mode does not need Lemonade. A small default chat model is downloaded automatically on first Summary or Explain use."
                                            FontSize="11"
                                            Foreground="{DynamicResource TextSecondaryBrush}"
                                            TextWrapping="Wrap"
@@ -244,27 +245,54 @@
                                 <Label Content="Chat Endpoint" Target="{Binding ElementName=ChatEndpointTextBox}" Padding="0" Margin="0,0,0,4" />
                                 <TextBox x:Name="ChatEndpointTextBox" Margin="0,0,0,8" />
 
-                                <Label Content="Summary Model" Target="{Binding ElementName=SummaryModelComboBox}" Padding="0" Margin="0,0,0,4" />
-                                <Grid>
+                                <Label Content="Chat Model" Target="{Binding ElementName=ChatModelComboBox}" Padding="0" Margin="0,0,0,4" />
+                                <Grid Margin="0,0,0,10">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="SummaryModelComboBox" IsEditable="True" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="ChatModelComboBox" IsEditable="True" VerticalAlignment="Center" />
                                     <Button Grid.Column="1"
                                             Content="Refresh"
                                             Style="{StaticResource SecondaryButton}"
                                             Margin="8,0,0,0"
-                                            Click="OnRefreshSummaryModelsClick" />
+                                            Click="OnRefreshChatModelsClick" />
                                     <Button Grid.Column="2"
-                                            x:Name="EnsureSummaryModelButton"
+                                            x:Name="EnsureChatModelButton"
                                             Content="Get default model"
                                             Style="{StaticResource SecondaryButton}"
                                             Margin="8,0,0,0"
                                             ToolTip="Download and load the default small Lemonade chat model (CPU-friendly)"
-                                            Click="OnEnsureSummaryModelClick" />
+                                            Click="OnEnsureChatModelClick" />
                                 </Grid>
+
+                                <Label Content="Explain Audience" Target="{Binding ElementName=ExplainAudienceComboBox}" Padding="0" Margin="0,0,0,4" />
+                                <ComboBox x:Name="ExplainAudienceComboBox" Margin="0,0,0,10">
+                                    <ComboBoxItem Content="Technical — keep accurate jargon" Tag="Technical" IsSelected="True" />
+                                    <ComboBoxItem Content="General — plain language" Tag="General" />
+                                </ComboBox>
+
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Label Content="Explain Length (about N sentences)" VerticalAlignment="Center" Padding="0" />
+                                    <TextBlock Grid.Column="1"
+                                               x:Name="ExplainSentenceCountValueTextBlock"
+                                               Text="3"
+                                               FontWeight="Bold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                                <Slider x:Name="ExplainSentenceCountSlider"
+                                        Minimum="1" Maximum="8"
+                                        Value="3"
+                                        TickFrequency="1"
+                                        IsSnapToTickEnabled="True"
+                                        SmallChange="1" LargeChange="1"
+                                        ValueChanged="OnExplainSentenceCountSliderValueChanged" />
                             </StackPanel>
                         </Border>
 

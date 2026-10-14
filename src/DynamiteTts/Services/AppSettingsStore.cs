@@ -67,13 +67,57 @@ public class AppSettingsStore
         try
         {
             var json = File.ReadAllText(_filePath);
-            var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-            return settings ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            MigrateLegacySummaryModel(json, settings);
+            settings.ExplainSentenceCount = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
+            return settings;
         }
         catch
         {
             return new AppSettings();
         }
+    }
+
+    /// <summary>
+    /// Older builds stored the Lemonade chat model as SummaryModel. Prefer ChatModel; copy legacy when empty.
+    /// </summary>
+    internal static void MigrateLegacySummaryModel(string json, AppSettings settings)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.ChatModel))
+            return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!TryGetPropertyIgnoreCase(doc.RootElement, "SummaryModel", out var legacy))
+                return;
+
+            var value = legacy.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+                settings.ChatModel = value.Trim();
+        }
+        catch
+        {
+            // Ignore malformed legacy fields; defaults apply.
+        }
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string name, out JsonElement value)
+    {
+        if (root.TryGetProperty(name, out value))
+            return true;
+
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = prop.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     public void Save(AppSettings settings)
@@ -82,6 +126,8 @@ public class AppSettingsStore
 
         lock (_lock)
         {
+            settings.ExplainSentenceCount = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
+
             var dir = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(dir))
             {

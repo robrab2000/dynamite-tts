@@ -59,7 +59,7 @@ jobs:
           - Requires 64-bit Windows 10 1809+ or Windows 11.
           - Self-contained (no separate .NET install). The Kokoro voice model is bundled so speech works on first launch.
           - Optional GPU acceleration may download the CUDA runtime (~1 GB) on first use.
-          - Summary mode still needs a local [Lemonade Server](https://lemonade-server.ai) install.
+          - Summary and Explain modes need a local [Lemonade Server](https://lemonade-server.ai) install.
           "@
 
           gh release view $tag 2>$null

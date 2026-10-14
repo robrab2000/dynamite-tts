@@ -37,6 +37,10 @@ public class AppSettingsStoreTests : IDisposable
             Model = "OpenMOSS-TTS",
             Voice = "af_sky",
             Speed = 1.25,
+            ChatModel = "Qwen2.5-0.5B-Instruct",
+            ExplainSentenceCount = 4,
+            ExplainAudience = ExplainAudience.General,
+            SpeakMode = SpeakMode.Explain,
             RunAtStartup = true,
             PlaySoundOnStop = false
         };
@@ -47,8 +51,48 @@ public class AppSettingsStoreTests : IDisposable
         Assert.Equal("OpenMOSS-TTS", loaded.Model);
         Assert.Equal("af_sky", loaded.Voice);
         Assert.Equal(1.25, loaded.Speed);
+        Assert.Equal("Qwen2.5-0.5B-Instruct", loaded.ChatModel);
+        Assert.Equal(4, loaded.ExplainSentenceCount);
+        Assert.Equal(ExplainAudience.General, loaded.ExplainAudience);
+        Assert.Equal(SpeakMode.Explain, loaded.SpeakMode);
         Assert.True(loaded.RunAtStartup);
         Assert.False(loaded.PlaySoundOnStop);
+        Assert.DoesNotContain("SummaryModel", File.ReadAllText(_tempPath));
+    }
+
+    [Fact]
+    public void Load_MigratesLegacySummaryModelToChatModel()
+    {
+        File.WriteAllText(_tempPath, """
+            {
+              "SpeechEndpoint": "http://localhost:13305/api/v1/audio/speech",
+              "Model": "kokoro-v1",
+              "Voice": "coral",
+              "Speed": 1.0,
+              "SummaryModel": "legacy-chat-model",
+              "SpeakMode": "Summary"
+            }
+            """);
+
+        var store = new AppSettingsStore(_tempPath);
+        var loaded = store.Current;
+        Assert.Equal("legacy-chat-model", loaded.ChatModel);
+
+        store.Save(loaded);
+        var savedJson = File.ReadAllText(_tempPath);
+        Assert.Contains("ChatModel", savedJson);
+        Assert.Contains("legacy-chat-model", savedJson);
+        Assert.DoesNotContain("SummaryModel", savedJson);
+    }
+
+    [Fact]
+    public void Save_ClampsExplainSentenceCount()
+    {
+        var store = new AppSettingsStore(_tempPath);
+        var settings = store.Current;
+        settings.ExplainSentenceCount = 99;
+        store.Save(settings);
+        Assert.Equal(8, store.Current.ExplainSentenceCount);
     }
 
     public void Dispose()

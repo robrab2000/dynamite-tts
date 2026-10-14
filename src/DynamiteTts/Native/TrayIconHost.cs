@@ -154,6 +154,7 @@ public sealed class TrayIconHost : IDisposable
         {
             TrayIconState.Capturing => (ActiveIconHandle, "Dynamite TTS (Reading selection...)"),
             TrayIconState.Summarizing => (ActiveIconHandle, "Dynamite TTS (Summarizing...)"),
+            TrayIconState.Explaining => (ActiveIconHandle, "Dynamite TTS (Explaining...)"),
             TrayIconState.Synthesizing => (ActiveIconHandle, "Dynamite TTS (Synthesizing...)"),
             TrayIconState.Speaking => (SpeakingIconHandle, "Dynamite TTS (Speaking...)"),
             _ => (IdleIconHandle, "Dynamite TTS (Ready)")

@@ -143,12 +143,20 @@ public class SpeechOrchestrator : IDisposable
     public void ToggleSpeakMode()
     {
         var settings = _settingsStore.Current;
-        settings.SpeakMode = settings.SpeakMode == SpeakMode.Summary
-            ? SpeakMode.Verbatim
-            : SpeakMode.Summary;
+        settings.SpeakMode = settings.SpeakMode switch
+        {
+            SpeakMode.Verbatim => SpeakMode.Summary,
+            SpeakMode.Summary => SpeakMode.Explain,
+            _ => SpeakMode.Verbatim
+        };
         _settingsStore.Save(settings);
 
-        var label = settings.SpeakMode == SpeakMode.Summary ? "Mode: Summary" : "Mode: Verbatim";
+        var label = settings.SpeakMode switch
+        {
+            SpeakMode.Summary => "Mode: Summary",
+            SpeakMode.Explain => "Mode: Explain",
+            _ => "Mode: Verbatim"
+        };
         AppLog.Info($"speak mode -> {settings.SpeakMode}");
         RaiseNotice(label);
 
@@ -209,12 +217,30 @@ public class SpeechOrchestrator : IDisposable
             return;
         }
 
-        // 4. New selection or not busy: optionally summarize, then speak
-        await SpeakOrSummarizeCapturedAsync(capturedText);
+        // 4. New selection or not busy: optionally summarize/explain, then speak
+        string? surroundingContext = null;
+        if (settings.SpeakMode == SpeakMode.Explain && SelectionContextHelper.IsShortSelection(capturedText))
+        {
+            try
+            {
+                surroundingContext = await UiAutomationSelectionContext.TryGetSurroundingContextAsync();
+                surroundingContext = SelectionContextHelper.NormalizeContext(capturedText, surroundingContext);
+                if (surroundingContext != null)
+                    AppLog.Info($"explain context: {surroundingContext.Length} chars via UI Automation");
+                else
+                    AppLog.Info("explain context: none (UI Automation unavailable or no extra surrounding text)");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn("Surrounding context capture failed", ex);
+            }
+        }
+
+        await SpeakOrSummarizeCapturedAsync(capturedText, surroundingContext);
     }
 
-    /// <summary>Speaks (or summarizes then speaks) already-captured text. Used by the hotkey path and tests.</summary>
-    public async Task SpeakOrSummarizeCapturedAsync(string capturedText)
+    /// <summary>Speaks (or summarizes/explains then speaks) already-captured text. Used by the hotkey path and tests.</summary>
+    public async Task SpeakOrSummarizeCapturedAsync(string capturedText, string? surroundingContext = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(capturedText);
 
@@ -222,18 +248,19 @@ public class SpeechOrchestrator : IDisposable
         _lastSpokenText = capturedText;
         var textToSpeak = capturedText;
 
-        if (settings.SpeakMode == SpeakMode.Summary)
+        if (settings.SpeakMode is SpeakMode.Summary or SpeakMode.Explain)
         {
-            CancellationTokenSource summarizeCts;
+            var isExplain = settings.SpeakMode == SpeakMode.Explain;
+            CancellationTokenSource chatCts;
             lock (_lock)
             {
                 CancelCurrentPipeline();
                 _currentCts = new CancellationTokenSource();
-                summarizeCts = _currentCts;
+                chatCts = _currentCts;
             }
 
-            UpdateState(TrayIconState.Summarizing);
-            var summarizeClock = Stopwatch.StartNew();
+            UpdateState(isExplain ? TrayIconState.Explaining : TrayIconState.Summarizing);
+            var chatClock = Stopwatch.StartNew();
             try
             {
                 var progress = new Progress<string>(msg =>
@@ -244,40 +271,55 @@ public class SpeechOrchestrator : IDisposable
 
                 var modelId = await _dependencyService.EnsureChatModelAsync(
                     settings.ChatEndpoint,
-                    settings.SummaryModel,
+                    settings.ChatModel,
                     progress,
-                    summarizeCts.Token);
+                    chatCts.Token);
 
-                if (string.IsNullOrWhiteSpace(settings.SummaryModel) ||
-                    !string.Equals(settings.SummaryModel, modelId, StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(settings.ChatModel) ||
+                    !string.Equals(settings.ChatModel, modelId, StringComparison.OrdinalIgnoreCase))
                 {
                     var updated = settings.Clone();
-                    updated.SummaryModel = modelId;
+                    updated.ChatModel = modelId;
                     _settingsStore.Save(updated);
                     settings = updated;
                 }
 
-                RaiseProgress("Summarizing…");
-                textToSpeak = await _chatClient.SummarizeAsync(
-                    settings.ChatEndpoint,
-                    modelId,
-                    capturedText,
-                    summarizeCts.Token);
-
-                AppLog.Info($"summarize: {capturedText.Length} chars -> {textToSpeak.Length} chars in {summarizeClock.ElapsedMilliseconds} ms");
+                if (isExplain)
+                {
+                    RaiseProgress("Explaining…");
+                    textToSpeak = await _chatClient.ExplainAsync(
+                        settings.ChatEndpoint,
+                        modelId,
+                        capturedText,
+                        settings.ExplainAudience,
+                        settings.ExplainSentenceCount,
+                        surroundingContext,
+                        chatCts.Token);
+                    AppLog.Info($"explain: {capturedText.Length} chars -> {textToSpeak.Length} chars in {chatClock.ElapsedMilliseconds} ms");
+                }
+                else
+                {
+                    RaiseProgress("Summarizing…");
+                    textToSpeak = await _chatClient.SummarizeAsync(
+                        settings.ChatEndpoint,
+                        modelId,
+                        capturedText,
+                        chatCts.Token);
+                    AppLog.Info($"summarize: {capturedText.Length} chars -> {textToSpeak.Length} chars in {chatClock.ElapsedMilliseconds} ms");
+                }
 
                 if (string.IsNullOrWhiteSpace(textToSpeak))
                 {
                     lock (_lock)
                     {
-                        if (ReferenceEquals(_currentCts, summarizeCts))
+                        if (ReferenceEquals(_currentCts, chatCts))
                         {
                             _currentCts = null;
                             _lastSpokenText = null;
                             UpdateState(TrayIconState.Idle);
                         }
                     }
-                    RaiseNotice("Summary was empty");
+                    RaiseNotice(isExplain ? "Explanation was empty" : "Summary was empty");
                     return;
                 }
             }
@@ -285,7 +327,7 @@ public class SpeechOrchestrator : IDisposable
             {
                 lock (_lock)
                 {
-                    if (ReferenceEquals(_currentCts, summarizeCts))
+                    if (ReferenceEquals(_currentCts, chatCts))
                     {
                         _currentCts = null;
                         _lastSpokenText = null;
@@ -296,10 +338,10 @@ public class SpeechOrchestrator : IDisposable
             }
             catch (Exception ex)
             {
-                AppLog.Error("Summarization failed", ex);
+                AppLog.Error(isExplain ? "Explanation failed" : "Summarization failed", ex);
                 lock (_lock)
                 {
-                    if (ReferenceEquals(_currentCts, summarizeCts))
+                    if (ReferenceEquals(_currentCts, chatCts))
                     {
                         _currentCts = null;
                         _lastSpokenText = null;
@@ -308,7 +350,7 @@ public class SpeechOrchestrator : IDisposable
                 }
 
                 // Raise notice after Idle so the status bubble will show it (notices are ignored while busy).
-                var shortNotice = FormatSummaryFailureNotice(ex);
+                var shortNotice = FormatChatModeFailureNotice(ex, settings.SpeakMode);
                 RaiseNotice(shortNotice);
                 // Balloons truncate; keep title aligned with the bubble and put detail in the body.
                 var balloon = ex.Message.Length <= 220 ? ex.Message : ex.Message[..220] + "…";
@@ -321,17 +363,23 @@ public class SpeechOrchestrator : IDisposable
     }
 
     /// <summary>Short status-bubble / balloon title for Summary-mode failures.</summary>
-    public static string FormatSummaryFailureNotice(Exception ex)
+    public static string FormatSummaryFailureNotice(Exception ex) =>
+        FormatChatModeFailureNotice(ex, SpeakMode.Summary);
+
+    /// <summary>Short status-bubble / balloon title for Summary or Explain failures.</summary>
+    public static string FormatChatModeFailureNotice(Exception ex, SpeakMode mode)
     {
+        var modeLabel = mode == SpeakMode.Explain ? "Explain" : "Summary";
         var msg = ex.Message ?? string.Empty;
         if (IsLemonadeNotRunningFailure(ex))
             return "Lemonade not running";
 
         if (msg.Contains("not installed", StringComparison.OrdinalIgnoreCase))
-            return "Install Lemonade for Summary";
+            return $"Install Lemonade for {modeLabel}";
 
         if (msg.Contains("chat LLM", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("cannot summarize", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("cannot explain", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("TTS models", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("no chat LLM", StringComparison.OrdinalIgnoreCase) ||
             msg.Contains("no models", StringComparison.OrdinalIgnoreCase))
@@ -341,9 +389,9 @@ public class SpeechOrchestrator : IDisposable
             return "Lemonade timed out";
 
         if (msg.Contains("Lemonade", StringComparison.OrdinalIgnoreCase))
-            return "Lemonade Summary error";
+            return $"Lemonade {modeLabel} error";
 
-        return "Summary failed";
+        return $"{modeLabel} failed";
     }
 
     public static bool IsLemonadeNotRunningFailure(Exception ex)

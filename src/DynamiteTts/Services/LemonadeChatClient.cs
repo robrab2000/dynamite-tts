@@ -16,6 +16,11 @@ public class LemonadeChatClient : IDisposable
         "You summarize text for spoken delivery. Reply with a concise plain-prose summary only. " +
         "No markdown, bullets, headings, titles, or preamble. Do not say that you are summarizing.";
 
+    /// <summary>Tokens per requested sentence for a generous max_tokens ceiling (not a tight budget).</summary>
+    public const int ExplainTokensPerSentence = 96;
+
+    public const int ExplainMaxTokensFloor = 128;
+
     private static readonly string[] TtsModelMarkers =
     [
         "kokoro", "tts", "whisper", "speech", "audio", "moss", "openmoss", "stt", "asr"
@@ -125,14 +130,88 @@ public class LemonadeChatClient : IDisposable
         return chatModels.FirstOrDefault()?.Id;
     }
 
-    public async Task<string> SummarizeAsync(
+    public static string BuildExplainSystemPrompt(ExplainAudience audience, int sentenceCount)
+    {
+        var n = AppSettings.ClampExplainSentenceCount(sentenceCount);
+        var register = audience == ExplainAudience.General
+            ? "Use plain language for a general listener; avoid unnecessary jargon."
+            : "Write for a technical peer: keep accurate jargon when useful; do not oversimplify. " +
+              "When a term has both an everyday or scientific sense and a computing sense, prefer the computing sense " +
+              "unless the surrounding text clearly points elsewhere.";
+
+        return
+            "You explain highlighted text for spoken delivery. " +
+            "Open by naming the selection, then explain it. " +
+            "If the selection is a short term or phrase, briefly define or clarify it. " +
+            "If it is longer, briefly explain what it means and why it matters. " +
+            "When surrounding text is provided, you MUST pick the meaning that fits that surrounding text. " +
+            "Do not fall back to a more common dictionary sense that contradicts the surroundings " +
+            "(for example, in 'browsers/Electron UIs', Electron is the desktop app framework, not the subatomic particle). " +
+            "Explain only the highlight, not the whole surrounding passage. " +
+            register + " " +
+            $"Aim for about {n} sentences. " +
+            "Ground the explanation in the selection and any provided surrounding text; do not invent outside facts. " +
+            "If you are unsure, say so briefly and still give the best explanation you can. " +
+            "Reply with concise plain prose only. No markdown, bullets, headings, titles, or preamble. " +
+            "Do not say that you are explaining.";
+    }
+
+    public static int GenerousExplainMaxTokens(int sentenceCount)
+    {
+        var n = AppSettings.ClampExplainSentenceCount(sentenceCount);
+        return Math.Max(ExplainMaxTokensFloor, n * ExplainTokensPerSentence);
+    }
+
+    public Task<string> SummarizeAsync(
         string chatEndpoint,
         string? model,
         string text,
         CancellationToken cancellationToken = default)
     {
+        return CompleteAsync(
+            chatEndpoint,
+            model,
+            text,
+            DefaultSystemPrompt,
+            maxTokens: null,
+            purpose: "summarize",
+            cancellationToken);
+    }
+
+    public Task<string> ExplainAsync(
+        string chatEndpoint,
+        string? model,
+        string text,
+        ExplainAudience audience,
+        int sentenceCount,
+        string? surroundingContext = null,
+        CancellationToken cancellationToken = default)
+    {
+        var prompt = BuildExplainSystemPrompt(audience, sentenceCount);
+        var maxTokens = GenerousExplainMaxTokens(sentenceCount);
+        var userMessage = SelectionContextHelper.BuildExplainUserMessage(text, surroundingContext);
+        return CompleteAsync(
+            chatEndpoint,
+            model,
+            userMessage,
+            prompt,
+            maxTokens,
+            purpose: "explain",
+            cancellationToken);
+    }
+
+    private async Task<string> CompleteAsync(
+        string chatEndpoint,
+        string? model,
+        string text,
+        string systemPrompt,
+        int? maxTokens,
+        string purpose,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(chatEndpoint);
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemPrompt);
 
         var (resolvedChatUrl, _) = ResolveEndpoints(chatEndpoint);
         var requestedModel = model?.Trim() ?? string.Empty;
@@ -145,7 +224,7 @@ public class LemonadeChatClient : IDisposable
                 ? "Lemonade currently has no models loaded."
                 : "Lemonade only has TTS models (" + string.Join(", ", models.Select(m => m.Id)) + ").";
             throw new InvalidOperationException(
-                available + " Summary mode needs a chat LLM in Lemonade Server. " +
+                available + " Summary and Explain modes need a chat LLM in Lemonade Server. " +
                 "Dynamite can install the default model automatically; or run: lemonade pull " +
                 LemonadeDependencyService.DefaultChatModelId + ", then lemonade load " +
                 LemonadeDependencyService.DefaultChatModelId + ".");
@@ -155,7 +234,7 @@ public class LemonadeChatClient : IDisposable
             !string.Equals(requestedModel, resolvedModel, StringComparison.OrdinalIgnoreCase) &&
             IsLikelyTtsModel(requestedModel))
         {
-            AppLog.Warn($"Summary model '{requestedModel}' is TTS-only; using chat model '{resolvedModel}' instead.");
+            AppLog.Warn($"Chat model '{requestedModel}' is TTS-only; using chat model '{resolvedModel}' instead.");
         }
 
         var payload = new Dictionary<string, object>
@@ -163,11 +242,14 @@ public class LemonadeChatClient : IDisposable
             ["model"] = resolvedModel,
             ["messages"] = new object[]
             {
-                new Dictionary<string, string> { ["role"] = "system", ["content"] = DefaultSystemPrompt },
+                new Dictionary<string, string> { ["role"] = "system", ["content"] = systemPrompt },
                 new Dictionary<string, string> { ["role"] = "user", ["content"] = text }
             },
             ["stream"] = false
         };
+
+        if (maxTokens is int tokens && tokens > 0)
+            payload["max_tokens"] = tokens;
 
         var json = JsonSerializer.Serialize(payload);
         using var request = new HttpRequestMessage(HttpMethod.Post, resolvedChatUrl)
@@ -184,7 +266,7 @@ public class LemonadeChatClient : IDisposable
                 if (body.Contains("does not support chat completion", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException(
-                        $"Model '{resolvedModel}' cannot summarize. Choose a chat LLM in Settings → Summary Model, " +
+                        $"Model '{resolvedModel}' cannot {purpose}. Choose a chat LLM in Settings → Chat Model, " +
                         "or pull one in Lemonade (e.g. Qwen2.5-0.5B-Instruct).");
                 }
 
@@ -205,7 +287,7 @@ public class LemonadeChatClient : IDisposable
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException($"Lemonade Server at {resolvedChatUrl} timed out while summarizing.");
+            throw new TimeoutException($"Lemonade Server at {resolvedChatUrl} timed out while trying to {purpose}.");
         }
     }
 

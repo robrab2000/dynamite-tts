@@ -1,5 +1,4 @@
 ﻿using System;
-using DynamiteTts.Models;
 
 namespace DynamiteTts.Models;
 
@@ -14,7 +13,9 @@ public class AppSettings
     public HotkeyConfig ModeToggleHotkey { get; set; } = HotkeyConfig.ModeToggleDefault;
     public SpeakMode SpeakMode { get; set; } = SpeakMode.Verbatim;
     public string ChatEndpoint { get; set; } = "http://localhost:13305/api/v1/chat/completions";
-    public string SummaryModel { get; set; } = string.Empty;
+    public string ChatModel { get; set; } = string.Empty;
+    public int ExplainSentenceCount { get; set; } = 3;
+    public ExplainAudience ExplainAudience { get; set; } = ExplainAudience.Technical;
     public string AudioDeviceId { get; set; } = string.Empty; // Empty string = System Default Device
     public bool RunAtStartup { get; set; } = false;
     public bool PlaySoundOnStop { get; set; } = true;
@@ -25,6 +26,8 @@ public class AppSettings
     public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto (GPU when available), -2 = CPU only, 0.. = CUDA device ordinal
     public string DirectMlModelPrecision { get; set; } = "float32"; // "float32" (preferred) or "float16"
     public int GpuIdleUnloadMinutes { get; set; } = 5; // unload the CUDA session after this many idle minutes so the dGPU can sleep
+
+    public static int ClampExplainSentenceCount(int value) => Math.Clamp(value, 1, 8);
 
     public AppSettings Clone()
     {
@@ -47,7 +50,9 @@ public class AppSettings
             },
             SpeakMode = SpeakMode,
             ChatEndpoint = ChatEndpoint,
-            SummaryModel = SummaryModel,
+            ChatModel = ChatModel,
+            ExplainSentenceCount = ClampExplainSentenceCount(ExplainSentenceCount),
+            ExplainAudience = ExplainAudience,
             AudioDeviceId = AudioDeviceId,
             RunAtStartup = RunAtStartup,
             PlaySoundOnStop = PlaySoundOnStop,

@@ -152,6 +152,15 @@ public partial class SettingsWindow : Window
                     PreviewVoiceButton.Content = "⏹ Stop";
                     break;
 
+                case TrayIconState.Explaining:
+                    SpeechActivityPanel.Visibility = Visibility.Visible;
+                    SpeechActivityDot.Fill = (Brush)FindResource("WarningBrush");
+                    SpeechActivityTextBlock.Text = "Explaining...";
+                    SpeechActivityTextBlock.Foreground = (Brush)FindResource("WarningBrush");
+                    TestSpeechButton.Content = "⏹ Stop Speech";
+                    PreviewVoiceButton.Content = "⏹ Stop";
+                    break;
+
                 case TrayIconState.Synthesizing:
                     SpeechActivityPanel.Visibility = Visibility.Visible;
                     SpeechActivityDot.Fill = (Brush)FindResource("WarningBrush");
@@ -188,7 +197,7 @@ public partial class SettingsWindow : Window
         PopulateFromSettings(_settingsStore.Current);
         UpdateLocalEngineStatus();
         await RefreshModelsAsync();
-        await RefreshSummaryModelsAsync();
+        await RefreshChatModelsAsync();
         await CheckConnectionAsync();
     }
 
@@ -328,7 +337,10 @@ public partial class SettingsWindow : Window
         ModeToggleHotkeyCaptureControl.Hotkey = settings.ModeToggleHotkey;
         SelectSpeakMode(settings.SpeakMode);
         ChatEndpointTextBox.Text = settings.ChatEndpoint;
-        SummaryModelComboBox.Text = settings.SummaryModel;
+        ChatModelComboBox.Text = settings.ChatModel;
+        SelectExplainAudience(settings.ExplainAudience);
+        ExplainSentenceCountSlider.Value = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
+        ExplainSentenceCountValueTextBlock.Text = ((int)ExplainSentenceCountSlider.Value).ToString();
         PlaySoundOnStopCheckBox.IsChecked = settings.PlaySoundOnStop;
         ShowStatusBubbleCheckBox.IsChecked = settings.ShowStatusBubble;
         LaunchAtStartupCheckBox.IsChecked = _startupService.IsStartupEnabled();
@@ -457,7 +469,9 @@ public partial class SettingsWindow : Window
             ChatEndpoint = string.IsNullOrWhiteSpace(ChatEndpointTextBox.Text)
                 ? _settingsStore.Current.ChatEndpoint
                 : ChatEndpointTextBox.Text.Trim(),
-            SummaryModel = SummaryModelComboBox.Text.Trim(),
+            ChatModel = ChatModelComboBox.Text.Trim(),
+            ExplainSentenceCount = AppSettings.ClampExplainSentenceCount((int)Math.Round(ExplainSentenceCountSlider.Value)),
+            ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
@@ -663,6 +677,14 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void OnExplainSentenceCountSliderValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (ExplainSentenceCountValueTextBlock != null)
+        {
+            ExplainSentenceCountValueTextBlock.Text = ((int)Math.Round(e.NewValue)).ToString();
+        }
+    }
+
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
         var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
@@ -726,7 +748,9 @@ public partial class SettingsWindow : Window
             ModeToggleHotkey = modeToggleHotkey,
             SpeakMode = GetSelectedSpeakMode(),
             ChatEndpoint = chatEndpoint,
-            SummaryModel = SummaryModelComboBox.Text.Trim(),
+            ChatModel = ChatModelComboBox.Text.Trim(),
+            ExplainSentenceCount = AppSettings.ClampExplainSentenceCount((int)Math.Round(ExplainSentenceCountSlider.Value)),
+            ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
@@ -789,50 +813,73 @@ public partial class SettingsWindow : Window
     private SpeakMode GetSelectedSpeakMode()
     {
         var tag = (SpeakModeComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return string.Equals(tag, nameof(SpeakMode.Summary), StringComparison.OrdinalIgnoreCase)
-            ? SpeakMode.Summary
-            : SpeakMode.Verbatim;
+        if (string.Equals(tag, nameof(SpeakMode.Summary), StringComparison.OrdinalIgnoreCase))
+            return SpeakMode.Summary;
+        if (string.Equals(tag, nameof(SpeakMode.Explain), StringComparison.OrdinalIgnoreCase))
+            return SpeakMode.Explain;
+        return SpeakMode.Verbatim;
     }
 
-    private async void OnRefreshSummaryModelsClick(object sender, RoutedEventArgs e)
+    private void SelectExplainAudience(ExplainAudience audience)
     {
-        await RefreshSummaryModelsAsync();
+        if (ExplainAudienceComboBox == null) return;
+        foreach (ComboBoxItem item in ExplainAudienceComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), audience.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                ExplainAudienceComboBox.SelectedItem = item;
+                return;
+            }
+        }
     }
 
-    private async void OnEnsureSummaryModelClick(object sender, RoutedEventArgs e)
+    private ExplainAudience GetSelectedExplainAudience()
     {
-        EnsureSummaryModelButton.IsEnabled = false;
+        var tag = (ExplainAudienceComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return string.Equals(tag, nameof(ExplainAudience.General), StringComparison.OrdinalIgnoreCase)
+            ? ExplainAudience.General
+            : ExplainAudience.Technical;
+    }
+
+    private async void OnRefreshChatModelsClick(object sender, RoutedEventArgs e)
+    {
+        await RefreshChatModelsAsync();
+    }
+
+    private async void OnEnsureChatModelClick(object sender, RoutedEventArgs e)
+    {
+        EnsureChatModelButton.IsEnabled = false;
         var endpoint = ChatEndpointTextBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(endpoint))
             endpoint = "http://localhost:13305/api/v1/chat/completions";
 
         try
         {
-            StatusTextBlock.Text = "Ensuring Lemonade summary model…";
+            StatusTextBlock.Text = "Ensuring Lemonade chat model…";
             var progress = new Progress<string>(msg =>
             {
                 Dispatcher.BeginInvoke(() => StatusTextBlock.Text = msg);
             });
 
-            var preferred = SummaryModelComboBox.Text.Trim();
+            var preferred = ChatModelComboBox.Text.Trim();
             var modelId = await _dependencyService.EnsureChatModelAsync(endpoint, preferred, progress);
-            SummaryModelComboBox.Text = modelId;
-            await RefreshSummaryModelsAsync();
-            StatusTextBlock.Text = $"Summary model ready: {modelId}";
-            _notificationService.ShowInfo("Summary model", $"Lemonade chat model '{modelId}' is ready.");
+            ChatModelComboBox.Text = modelId;
+            await RefreshChatModelsAsync();
+            StatusTextBlock.Text = $"Chat model ready: {modelId}";
+            _notificationService.ShowInfo("Chat model", $"Lemonade chat model '{modelId}' is ready.");
         }
         catch (Exception ex)
         {
-            StatusTextBlock.Text = "Could not prepare summary model";
-            MessageBox.Show(this, ex.Message, "Summary model", MessageBoxButton.OK, MessageBoxImage.Warning);
+            StatusTextBlock.Text = "Could not prepare chat model";
+            MessageBox.Show(this, ex.Message, "Chat model", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
         {
-            EnsureSummaryModelButton.IsEnabled = true;
+            EnsureChatModelButton.IsEnabled = true;
         }
     }
 
-    private async Task RefreshSummaryModelsAsync()
+    private async Task RefreshChatModelsAsync()
     {
         try
         {
@@ -841,30 +888,30 @@ public partial class SettingsWindow : Window
                 : ChatEndpointTextBox.Text.Trim();
 
             var models = await _chatClient.GetModelsAsync(endpoint);
-            var currentText = SummaryModelComboBox.Text;
+            var currentText = ChatModelComboBox.Text;
             if (string.IsNullOrEmpty(currentText))
-                currentText = _settingsStore.Current.SummaryModel;
+                currentText = _settingsStore.Current.ChatModel;
 
-            SummaryModelComboBox.Items.Clear();
+            ChatModelComboBox.Items.Clear();
             foreach (var model in models.Where(m => !LemonadeChatClient.IsLikelyTtsModel(m.Id)))
             {
-                SummaryModelComboBox.Items.Add(model.Id);
+                ChatModelComboBox.Items.Add(model.Id);
             }
 
             foreach (var model in models.Where(m => LemonadeChatClient.IsLikelyTtsModel(m.Id)))
             {
-                SummaryModelComboBox.Items.Add(model.Id);
+                ChatModelComboBox.Items.Add(model.Id);
             }
 
             if (!string.IsNullOrWhiteSpace(currentText))
             {
-                SummaryModelComboBox.Text = currentText;
+                ChatModelComboBox.Text = currentText;
             }
             else
             {
                 var picked = LemonadeChatClient.PickChatModel(models, preferred: null);
                 if (!string.IsNullOrEmpty(picked))
-                    SummaryModelComboBox.Text = picked;
+                    ChatModelComboBox.Text = picked;
             }
         }
         catch

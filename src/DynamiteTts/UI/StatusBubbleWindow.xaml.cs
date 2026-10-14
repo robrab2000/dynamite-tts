@@ -14,7 +14,7 @@ namespace DynamiteTts.UI;
 
 /// <summary>
 /// Small always-on-top status pill (in the style of Handy's recording bubble) centred at the top of
-/// the monitor you are working on. Shows "Reading selection…", "Summarizing…", "Synthesizing…" and
+/// the monitor you are working on. Shows "Reading selection…", "Summarizing…", "Explaining…", "Synthesizing…" and
 /// "Speaking" with animated level bars, has a stop button, and never takes keyboard focus, so it
 /// cannot interfere with the Ctrl+C selection capture or with typing in the foreground app.
 /// Call <see cref="ShowState"/> and <see cref="ShowNotice"/> on the UI thread.
@@ -110,6 +110,9 @@ public partial class StatusBubbleWindow : Window
             case TrayIconState.Summarizing:
                 SetContent("Summarizing…", "WarningBrush", showStop: true);
                 break;
+            case TrayIconState.Explaining:
+                SetContent("Explaining…", "WarningBrush", showStop: true);
+                break;
             case TrayIconState.Synthesizing:
                 SetContent("Synthesizing…", "WarningBrush", showStop: true);
                 break;
@@ -129,7 +132,7 @@ public partial class StatusBubbleWindow : Window
     /// <summary>Updates the label while busy (e.g. downloading a Lemonade summary model).</summary>
     public void SetBusyText(string message)
     {
-        if (_state is not (TrayIconState.Summarizing or TrayIconState.Synthesizing or TrayIconState.Capturing))
+        if (_state is not (TrayIconState.Summarizing or TrayIconState.Explaining or TrayIconState.Synthesizing or TrayIconState.Capturing))
             return;
         if (string.IsNullOrWhiteSpace(message)) return;
         StatusText.Text = message.Trim();

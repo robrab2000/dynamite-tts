@@ -208,6 +208,11 @@ public class SpeechOrchestratorTests : IDisposable
         Assert.Equal(SpeakMode.Summary, observed);
 
         orchestrator.ToggleSpeakMode();
+        Assert.Equal(SpeakMode.Explain, orchestrator.CurrentSpeakMode);
+        Assert.Equal("Mode: Explain", notice);
+        Assert.Equal(SpeakMode.Explain, observed);
+
+        orchestrator.ToggleSpeakMode();
         Assert.Equal(SpeakMode.Verbatim, orchestrator.CurrentSpeakMode);
         Assert.Equal("Mode: Verbatim", notice);
     }
@@ -219,7 +224,7 @@ public class SpeechOrchestratorTests : IDisposable
         var settings = settingsStore.Current;
         settings.EngineMode = "LemonadeServer";
         settings.SpeakMode = SpeakMode.Summary;
-        settings.SummaryModel = "Qwen2.5-0.5B-Instruct";
+        settings.ChatModel = "Qwen2.5-0.5B-Instruct";
         settingsStore.Save(settings);
 
         var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
@@ -292,6 +297,92 @@ public class SpeechOrchestratorTests : IDisposable
         Assert.True(chatSeen);
         Assert.Equal("Brief summary.", speechInput);
         Assert.Contains(TrayIconState.Summarizing, states);
+        Assert.Contains(TrayIconState.Synthesizing, states);
+        Assert.Contains(TrayIconState.Speaking, states);
+    }
+
+    [Fact]
+    public async Task SpeakOrSummarizeCapturedAsync_InExplainMode_CallsChatThenSpeaks()
+    {
+        var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var settings = settingsStore.Current;
+        settings.EngineMode = "LemonadeServer";
+        settings.SpeakMode = SpeakMode.Explain;
+        settings.ChatModel = "Qwen2.5-0.5B-Instruct";
+        settings.ExplainSentenceCount = 3;
+        settings.ExplainAudience = ExplainAudience.Technical;
+        settingsStore.Save(settings);
+
+        var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
+
+        var chatSeen = false;
+        var speechInput = string.Empty;
+        var handler = new MockHttpMessageHandler
+        {
+            Handler = req =>
+            {
+                var path = req.RequestUri!.AbsolutePath;
+                if (path.EndsWith("/models"))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":[{"id":"Qwen2.5-0.5B-Instruct"},{"id":"kokoro-v1"}]}""")
+                    };
+                }
+
+                if (path.EndsWith("/chat/completions"))
+                {
+                    chatSeen = true;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"choices":[{"message":{"content":"Mutex is a lock that prevents concurrent access."}}]}""")
+                    };
+                }
+
+                if (path.EndsWith("/audio/speech"))
+                {
+                    var json = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    using var doc = JsonDocument.Parse(json);
+                    speechInput = doc.RootElement.GetProperty("input").GetString() ?? string.Empty;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(wavData)
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+        };
+
+        using var httpClient = new HttpClient(handler);
+        using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient(httpClient);
+        var dependencyService = new LemonadeDependencyService(chatClient, httpClient);
+        var clipboardService = new ClipboardSelectionService();
+        var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
+        using var trayHost = new TrayIconHost();
+        var notificationService = new TrayNotificationService(trayHost);
+
+        using var orchestrator = new SpeechOrchestrator(
+            settingsStore,
+            clipboardService,
+            ttsClient,
+            chatClient,
+            localTtsService,
+            audioService,
+            trayHost,
+            notificationService,
+            dependencyService);
+
+        var states = new List<TrayIconState>();
+        orchestrator.StateChanged += s => states.Add(s);
+
+        await orchestrator.SpeakOrSummarizeCapturedAsync("mutex");
+
+        Assert.True(chatSeen);
+        Assert.Equal("Mutex is a lock that prevents concurrent access.", speechInput);
+        Assert.Contains(TrayIconState.Explaining, states);
         Assert.Contains(TrayIconState.Synthesizing, states);
         Assert.Contains(TrayIconState.Speaking, states);
     }
