@@ -48,7 +48,12 @@ jobs:
           if (-not $setup) { throw "Setup.exe not found under artifacts/ (is Inno Setup installed?)" }
 
           $tag = "${{ github.ref_name }}"
+          # Generic install/notes boilerplate. Prefer editing the published release body
+          # afterward so What's new can call out the real headline features for the tag.
           $notes = @"
+          ## What's new
+          _(Edit this section after publish with the headline features for this release.)_
+
           ## Install
           Prefer **``$($setup.Name)``** — installs to ``%LocalAppData%\Programs\DynamiteTTS``, adds a Start Menu shortcut, optionally starts at sign-in, then launches the app.
 
@@ -64,6 +69,7 @@ jobs:
 
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
+            # Existing release: upload assets only so manually edited What's new notes are preserved.
             gh release upload $tag $setup.FullName $zip.FullName --clobber
           } else {
             gh release create $tag $setup.FullName $zip.FullName --title "Dynamite TTS $tag" --notes $notes
