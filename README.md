@@ -21,7 +21,7 @@ cd ~/Downloads
 bash DynamiteTTS-install.command
 ```
 
-The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
+The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. It needs Apple Silicon and macOS 15 or later. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
 
 ---
 
