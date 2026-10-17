@@ -22,6 +22,12 @@ artifacts/
 experiments/models/
 !experiments/**/*.md
 
+# macOS app build
+macos/**/.build/
+macos/**/*.app/
+DynamiteTTS-install.command
+DynamiteTTS-install.sh
+
 # OS files
 Thumbs.db
 ehthumbs.db
