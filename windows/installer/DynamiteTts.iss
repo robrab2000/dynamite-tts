@@ -2,7 +2,7 @@
 ; Built by publish.ps1 (pass /DMyAppVersion=x.y.z)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.3"
+  #define MyAppVersion "0.1.4"
 #endif
 
 #define MyAppName "Dynamite TTS"
