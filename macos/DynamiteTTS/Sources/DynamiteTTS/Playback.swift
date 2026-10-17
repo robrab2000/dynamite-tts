@@ -76,9 +76,22 @@ final class PCMPlayer {
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24_000, channels: 1, interleaved: false)!
     private var started = false
+    private var playGeneration = 0
+    private var heldBuffers: [HeldBuffer] = []
+    private var queuedFrames: AVAudioFramePosition = 0
+    private var loggedClock = false
     private(set) var level: Float = 0
     private(set) var scheduledBuffers = 0
     var onDrained: (() -> Void)?
+    private var drainTimer: Timer?
+    nonisolated(unsafe) private static weak var active: PCMPlayer?
+
+    private struct HeldBuffer {
+        let buffer: AVAudioPCMBuffer
+        let generation: Int
+        let countsAsSpeech: Bool
+        let endFrame: AVAudioFramePosition
+    }
 
     func prepare(deviceUID: String) throws {
         if started {
@@ -105,51 +118,107 @@ final class PCMPlayer {
         try engine.start()
         player.play()
         started = true
+        heldBuffers.removeAll()
+        scheduledBuffers = 0
+        queuedFrames = 0
+        loggedClock = false
+        Self.active = self
+        drainTimer?.invalidate()
+        drainTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            Task { @MainActor in
+                Self.active?.drainFinished()
+            }
+        }
     }
 
     func enqueue(_ pcm16: Data) {
-        guard started, !pcm16.isEmpty else { return }
-        let frames = pcm16.count / 2
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
-              let channel = buffer.floatChannelData?[0] else { return }
-        buffer.frameLength = AVAudioFrameCount(frames)
-        pcm16.withUnsafeBytes { raw in
-            let samples = raw.bindMemory(to: Int16.self)
-            var peak: Float = 0
-            for index in 0..<frames {
-                let sample = Float(samples[index]) / 32768
-                channel[index] = sample
-                peak = max(peak, abs(sample))
-            }
-            level = peak
-        }
-        scheduledBuffers += 1
-        player.scheduleBuffer(buffer) { [weak self] in
-            Task { @MainActor in
-                guard let self else { return }
-                self.scheduledBuffers = max(0, self.scheduledBuffers - 1)
-                self.level *= 0.4
-                if self.scheduledBuffers == 0 {
-                    self.onDrained?()
-                }
-            }
+        guard started else { return }
+        let framesPerBuffer = 4_800
+        var offset = 0
+        while offset + 1 < pcm16.count {
+            let frames = min(framesPerBuffer, (pcm16.count - offset) / 2)
+            guard frames > 0 else { return }
+            let byteCount = frames * 2
+            schedule(pcm16.subdata(in: offset..<(offset + byteCount)), countsAsSpeech: true)
+            offset += byteCount
         }
     }
 
     func stop(playChime: Bool) {
+        playGeneration += 1
         player.stop()
+        heldBuffers.removeAll()
+        queuedFrames = 0
+        loggedClock = false
         scheduledBuffers = 0
         level = 0
-        guard playChime, started else { return }
-        guard let buffer = chimeBuffer() else { return }
+        guard playChime, started, let buffer = chimeBuffer() else { return }
         player.play()
-        player.scheduleBuffer(buffer)
+        schedule(buffer)
     }
 
     func shutdown() {
         player.stop()
         engine.stop()
         started = false
+    }
+
+    private func schedule(_ pcm16: Data, countsAsSpeech: Bool) {
+        let frames = pcm16.count / 2
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let channel = buffer.floatChannelData?[0] else { return }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        pcm16.withUnsafeBytes { raw in
+            var peak: Float = 0
+            for index in 0..<frames {
+                let sample = Float(raw.loadUnaligned(fromByteOffset: index * 2, as: Int16.self)) / 32768
+                channel[index] = sample
+                peak = max(peak, abs(sample))
+            }
+            level = max(level, peak)
+        }
+        schedule(buffer, countsAsSpeech: countsAsSpeech)
+    }
+
+    private func schedule(_ buffer: AVAudioPCMBuffer, countsAsSpeech: Bool = false) {
+        let generation = playGeneration
+        queuedFrames += AVAudioFramePosition(buffer.frameLength)
+        heldBuffers.append(HeldBuffer(
+            buffer: buffer,
+            generation: generation,
+            countsAsSpeech: countsAsSpeech,
+            endFrame: queuedFrames
+        ))
+        if countsAsSpeech { scheduledBuffers += 1 }
+        Self.active = self
+        AppLog.write("schedule frames=\(buffer.frameLength) held=\(heldBuffers.count)")
+        player.scheduleBuffer(buffer)
+        AppLog.write("schedule returned queued=\(queuedFrames)")
+    }
+
+    private func drainFinished() {
+        guard started,
+              let renderTime = player.lastRenderTime,
+              let playerTime = player.playerTime(forNodeTime: renderTime) else { return }
+        let played = playerTime.sampleTime
+        if !loggedClock {
+            loggedClock = true
+            AppLog.write("render sample=\(played) queued=\(queuedFrames)")
+        }
+        let generation = playGeneration
+        var finishedSpeech = 0
+        heldBuffers.removeAll { held in
+            guard played >= held.endFrame else { return false }
+            if held.generation == generation, held.countsAsSpeech { finishedSpeech += 1 }
+            return true
+        }
+        guard finishedSpeech > 0 else { return }
+        scheduledBuffers = max(0, scheduledBuffers - finishedSpeech)
+        level *= 0.4
+        if scheduledBuffers == 0 {
+            AppLog.write("playback drained")
+            onDrained?()
+        }
     }
 
     private func chimeBuffer() -> AVAudioPCMBuffer? {

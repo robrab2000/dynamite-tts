@@ -32,6 +32,7 @@ final class SpeechSession {
         generation += 1
         let token = generation
         let activeMode = mode ?? settings.current.speakMode
+        AppLog.write("speak chars=\(text.count) mode=\(activeMode.rawValue) voice=\(settings.current.voice)")
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -39,6 +40,7 @@ final class SpeechSession {
             } catch is CancellationError {
                 return
             } catch {
+                AppLog.write("speak failed: \(error.localizedDescription)")
                 if token == self.generation {
                     self.onNotice?(error.localizedDescription)
                     self.onPhase?(nil)
@@ -65,6 +67,7 @@ final class SpeechSession {
         }
         onPhase?("Starting Lemonade…")
         try await client.ensureServer(baseURL: baseURL)
+        AppLog.write("lemonade ready \(baseURL.absoluteString)")
         try Task.checkCancellation()
 
         var spoken = text
@@ -93,8 +96,11 @@ final class SpeechSession {
         if token != generation { return }
         onPhase?("Synthesizing…")
         try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1")
+        AppLog.write("kokoro ready")
         try Task.checkCancellation()
+        AppLog.write("player prepare device=\(settings.audioDeviceUID.isEmpty ? "default" : settings.audioDeviceUID)")
         try player.prepare(deviceUID: settings.audioDeviceUID)
+        AppLog.write("player started")
         streamFinished = false
         receivedAudio = false
 
@@ -104,6 +110,7 @@ final class SpeechSession {
                     guard let self, token == self.generation else { return }
                     if !self.receivedAudio {
                         self.receivedAudio = true
+                        AppLog.write("first audio bytes=\(data.count)")
                         self.onPhase?("Speaking")
                     }
                     self.player.enqueue(data)
@@ -126,6 +133,7 @@ final class SpeechSession {
             }
         )
         self.stream = stream
+        AppLog.write("speech request chars=\(spoken.count) voice=\(settings.voice) speed=\(settings.speed)")
         try stream.start(baseURL: baseURL, text: spoken, voice: settings.voice, speed: settings.speed)
     }
 }

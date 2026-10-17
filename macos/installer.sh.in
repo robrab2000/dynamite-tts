@@ -1,0 +1,130 @@
+#!/bin/bash
+# Double-click DynamiteTTS-install.command. Terminal opens and runs this script.
+# This file contains the Dynamite TTS source. Progress and errors print here.
+set -euo pipefail
+
+finish() {
+  local status=$?
+  if [[ -n "${workdir:-}" && -d "${workdir}" ]]; then
+    rm -rf "${workdir}"
+  fi
+  echo
+  if [[ "${status}" -ne 0 ]]; then
+    echo "Setup stopped (exit ${status}). The message above is the failure."
+  fi
+  echo "Press Return to close this window."
+  read -r _ || true
+  exit "${status}"
+}
+trap finish EXIT
+trap 'echo; echo "Stopped at line ${BASH_LINENO[0]} (exit $?)." >&2' ERR
+
+echo "Dynamite TTS setup"
+echo
+
+if [[ "$(uname -m)" != "arm64" ]]; then
+  echo "This installer is for an Apple Silicon Mac."
+  exit 1
+fi
+
+major="$(sw_vers -productVersion | cut -d. -f1)"
+if [[ "${major}" -lt 14 ]]; then
+  echo "macOS 14 or later is required."
+  exit 1
+fi
+
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/Library/Developer/CommandLineTools/usr/bin:${PATH:-}"
+
+ensure_swift() {
+  if xcrun --find swift >/dev/null 2>&1; then
+    echo "Xcode Command Line Tools are already installed."
+    return
+  fi
+  echo "macOS will ask to install the Xcode Command Line Tools."
+  echo "Click Install in that window. Setup will continue when it finishes."
+  xcode-select --install || true
+  local i
+  for i in $(seq 1 360); do
+    if xcrun --find swift >/dev/null 2>&1; then
+      echo "Command Line Tools are ready."
+      return
+    fi
+    sleep 5
+  done
+  echo "The Command Line Tools install did not finish. Run this file again after it completes."
+  exit 1
+}
+
+extract_source() {
+  local dest="$1"
+  mkdir -p "$dest"
+  base64 -D <<'__DYNAMITE_PAYLOAD__' | tar -xzf - -C "$dest"
+@@PAYLOAD@@
+__DYNAMITE_PAYLOAD__
+}
+
+start_lemonade() {
+  local dest="$1"
+  if curl -sf --max-time 2 "http://127.0.0.1:13305/api/v1/health" >/dev/null; then
+    echo "Lemonade is already running."
+    return
+  fi
+  echo "Starting Lemonade…"
+  nohup "${dest}/lemond" --host 127.0.0.1 --port 13305 --no-broadcast >/tmp/dynamite-lemond.log 2>&1 &
+  local i
+  for i in $(seq 1 60); do
+    if curl -sf --max-time 2 "http://127.0.0.1:13305/api/v1/health" >/dev/null; then
+      return
+    fi
+    sleep 1
+  done
+  echo "Lemonade did not start. The log is /tmp/dynamite-lemond.log"
+  exit 1
+}
+
+echo "== Command Line Tools =="
+ensure_swift
+
+workdir="$(mktemp -d)"
+echo
+echo "== Unpack =="
+extract_source "$workdir"
+
+echo
+echo "== Lemonade =="
+"${workdir}/macos/install-lemonade.sh"
+
+lemonade_dir="${HOME}/Library/Application Support/DynamiteTTS/lemonade"
+start_lemonade "$lemonade_dir"
+cli="${lemonade_dir}/lemonade"
+
+echo
+echo "== Metal backends =="
+"${cli}" backends install kokoro:metal
+"${cli}" backends install llamacpp:metal
+
+echo
+echo "== Models =="
+echo "Downloading the Kokoro voice and the chat model. This can take a few minutes the first time."
+"${cli}" pull kokoro-v1
+"${cli}" pull Llama-3.2-1B-Instruct-GGUF
+
+echo
+echo "== Build =="
+"${workdir}/macos/package-app.sh"
+
+destination="${HOME}/Applications"
+mkdir -p "$destination"
+osascript -e 'tell application "Dynamite TTS" to quit' >/dev/null 2>&1 || true
+pkill -f "DynamiteTTS.app/Contents/MacOS/DynamiteTTS" >/dev/null 2>&1 || true
+sleep 0.4
+rm -rf "${destination}/DynamiteTTS.app"
+ditto "${workdir}/macos/DynamiteTTS/DynamiteTTS.app" "${destination}/DynamiteTTS.app"
+open "${destination}/DynamiteTTS.app"
+
+echo
+echo "Dynamite TTS is in the menu bar."
+echo "If macOS asks, allow it under Accessibility. That is the last step."
+echo "Highlight some text and press Control-Shift-S."
+echo "If the app quits while speaking, the log is:"
+echo "  ~/Library/Logs/DynamiteTTS/dynamite.log"

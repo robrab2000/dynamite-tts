@@ -107,7 +107,7 @@ final class StatusPanel {
     private func startMeter() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 self?.updateLevel(AppDelegate.shared?.speech.player.level ?? 0)
             }
         }

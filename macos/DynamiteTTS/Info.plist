@@ -8,6 +8,8 @@
 	<string>Dynamite TTS</string>
 	<key>CFBundleExecutable</key>
 	<string>DynamiteTTS</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.robrab2000.dynamitett</string>
 	<key>CFBundleInfoDictionaryVersion</key>

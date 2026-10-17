@@ -8,6 +8,7 @@ enum DynamiteMain {
             return
         }
 
+        AppLog.open()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         AppDelegate.shared = delegate

@@ -34,6 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let text = LaunchArguments.speakText {
             speech.speak(text: text)
         }
+        if !SelectionReader.isTrusted(prompt: true) {
+            SelectionReader.openAccessibilitySettings()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -44,7 +47,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = StatusIcon.image
-            button.image?.isTemplate = true
             button.toolTip = "Dynamite TTS"
         }
         menu = NSMenu()
@@ -91,8 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPhase(_ phase: String?) {
         let title = phase ?? "Ready"
-        print("phase: \(title)")
-        fflush(stdout)
+        AppLog.write("phase: \(title)")
+        statusItem.button?.image = StatusIcon.image(for: phase)
         statusItem.button?.toolTip = "Dynamite TTS (\(title))"
         guard settings.current.showStatusPanel else {
             statusPanel.hide()
@@ -106,8 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showNotice(_ text: String) {
-        print("notice: \(text)")
-        fflush(stdout)
+        AppLog.write("notice: \(text)")
         if settings.current.showStatusPanel {
             statusPanel.showNotice(text)
         }
@@ -120,14 +121,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum StatusIcon {
-    static var image: NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
-            NSColor.black.setFill()
-            let path = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
-            path.fill()
-            return true
+    static var image: NSImage { image(named: "app_idle") }
+
+    static func image(for phase: String?) -> NSImage {
+        switch phase {
+        case "Speaking":
+            return image(named: "app_speaking")
+        case nil:
+            return image(named: "app_idle")
+        default:
+            return image(named: "app_active")
         }
-        image.isTemplate = true
+    }
+
+    private static func image(named name: String) -> NSImage {
+        let loaded = Bundle.main.url(forResource: name, withExtension: "png").flatMap { NSImage(contentsOf: $0) }
+        let image = loaded ?? NSImage(size: NSSize(width: 18, height: 18))
+        image.isTemplate = false
+        image.size = NSSize(width: 18, height: 18)
         return image
     }
 }
