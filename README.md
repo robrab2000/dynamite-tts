@@ -14,7 +14,14 @@ To carry it to another Apple Silicon Mac, build one installer and copy that file
 ./macos/make-installer.sh ~/Desktop/DynamiteTTS-install.command
 ```
 
-Copy that one file to the other Apple Silicon Mac and double-click it. Terminal opens and runs the setup, printing each stage and stopping on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
+Copy that one file to the other Apple Silicon Mac and run it from Terminal. Opening it from Finder makes macOS treat the download as untrusted and move it to the Trash.
+
+```bash
+cd ~/Downloads
+bash DynamiteTTS-install.command
+```
+
+The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
 
 ---
 

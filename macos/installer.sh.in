@@ -1,5 +1,5 @@
 #!/bin/bash
-# Double-click DynamiteTTS-install.command. Terminal opens and runs this script.
+# Run from Terminal: bash DynamiteTTS-install.command
 # This file contains the Dynamite TTS source. Progress and errors print here.
 set -euo pipefail
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build one double-clickable installer. Terminal opens and runs the setup.
+# Build one installer file. Run it from Terminal with bash; Finder will quarantine a double-click.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
