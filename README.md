@@ -1,6 +1,12 @@
 # Dynamite TTS — Windows Highlight-to-Speech
 
-A fast, lightweight, and 100% private Windows highlight-to-speech utility powered by local TTS engines (such as [Lemonade Server](https://lemonade-server.ai) running Kokoro or OpenMOSS).
+A fast, lightweight, and 100% private highlight-to-speech utility. On Windows it is a tray app with in-process Kokoro. On Apple Silicon it is a separate menu-bar app (`macos/DynamiteTTS`) that speaks through Lemonade’s Metal Kokoro and summarizes with Lemonade’s Metal chat model.
+
+```bash
+./macos/install-lemonade.sh
+./macos/package-app.sh
+open macos/DynamiteTTS/DynamiteTTS.app
+```
 
 ---
 

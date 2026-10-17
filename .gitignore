@@ -22,6 +22,10 @@ artifacts/
 experiments/models/
 !experiments/**/*.md
 
+# macOS app build
+macos/**/.build/
+macos/**/*.app/
+
 # OS files
 Thumbs.db
 ehthumbs.db
