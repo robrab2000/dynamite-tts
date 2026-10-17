@@ -29,11 +29,11 @@ Determine whether an ONNX TTS model can run on the AMD Ryzen AI NPU (HX 370 / XD
 
 ## Next steps for NPU TTS
 1. Install [AMD Ryzen AI Software](https://ryzenai.docs.amd.com/) and NPU drivers.
-2. Re-run `dotnet run --project experiments/NpuTtsSpike`.
+2. Re-run `dotnet run --project windows/experiments/NpuTtsSpike`.
 3. If VitisAI session OK, inspect `vitisai_ep_report.json` for NPU vs CPU node assignment.
 4. Only if meaningful NPU offload: wire a Piper/Vitis path into Dynamite as an experimental engine.
 
 ## Re-run
 ```powershell
-dotnet run --project experiments/NpuTtsSpike
+dotnet run --project windows/experiments/NpuTtsSpike
 ```

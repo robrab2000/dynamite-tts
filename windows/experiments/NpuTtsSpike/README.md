@@ -5,9 +5,9 @@ Experiment branch helper for trying **ONNX TTS on the AMD Ryzen AI NPU** (Vitis 
 ## Run
 
 ```powershell
-dotnet run --project experiments/NpuTtsSpike
+dotnet run --project windows/experiments/NpuTtsSpike
 # or, if models already downloaded:
-dotnet run --project experiments/NpuTtsSpike -- --skip-download
+dotnet run --project windows/experiments/NpuTtsSpike -- --skip-download
 ```
 
 ## What it does

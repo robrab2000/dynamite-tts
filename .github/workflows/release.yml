@@ -11,6 +11,9 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
     steps:
       - name: Checkout
         uses: actions/checkout@v4

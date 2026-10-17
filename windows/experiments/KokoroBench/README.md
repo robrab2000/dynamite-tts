@@ -5,8 +5,8 @@ Run it from its output folder so the bundled `voices` directory is found; hard-l
 `kokoro.onnx` / `kokoro-fp16.onnx` from the repo root next to the executable so nothing is re-downloaded.
 
 ```powershell
-dotnet build experiments/KokoroBench -c Release
-cd experiments/KokoroBench/bin/Release/net9.0-windows
+dotnet build windows/experiments/KokoroBench -c Release
+cd windows/experiments/KokoroBench/bin/Release/net9.0-windows
 .\KokoroBench.exe all                       # KokoroSharp engine: CPU + every DXGI adapter via DirectML
 .\KokoroBench.exe cpu                       # CPU only
 .\KokoroBench.exe dml "RTX 5070"            # substring filter on the config name

@@ -1,6 +1,6 @@
 # Dynamite TTS — Windows Highlight-to-Speech
 
-A fast, lightweight, and 100% private highlight-to-speech utility. On Windows it is a tray app with in-process Kokoro. On Apple Silicon it is a separate menu-bar app (`macos/DynamiteTTS`) that speaks through Lemonade’s Metal Kokoro and summarizes with Lemonade’s Metal chat model.
+A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model.
 
 ```bash
 ./macos/install-lemonade.sh
@@ -48,7 +48,7 @@ Copy that one file to the other Apple Silicon Mac and double-click it. Terminal 
   - Stop or a new hotkey press cancels the in-flight inference immediately (no orphaned work queued behind the next request).
   - CPU path (one thread per physical core, fp32 graph) is always warm: about 0.35 s to first audio and 5x realtime on a Ryzen AI 9 HX 370.
   - NVIDIA GPUs are used through CUDA when present: the CUDA 13 runtime (about 1 GB) is fetched once from NVIDIA's PyPI wheels into `%LocalAppData%\DynamiteTts\cuda13`, the GPU session loads on first use while the CPU renders the first sentences, and it is unloaded after a few idle minutes so a laptop's discrete GPU can sleep. Measured on an RTX 5070 Laptop: about 0.11 s to first audio and 13x realtime.
-  - "CPU only" in Settings keeps the GPU untouched; DirectML and the Ryzen AI NPU were evaluated and rejected (see `experiments/FINDINGS-tts-backends.md`).
+  - "CPU only" in Settings keeps the GPU untouched; DirectML and the Ryzen AI NPU were evaluated and rejected (see `windows/experiments/FINDINGS-tts-backends.md`).
   - Playback starts as soon as the first sentence is rendered (about 0.2 s with the GPU session loaded, 0.6–0.8 s on the CPU) and continues while the rest of the selection is synthesized.
 - **Status Bubble:**
   - A small pill at the top of the screen, in the style of Handy's recording bubble, shows "Reading selection…", "Summarizing…", "Explaining…", "Synthesizing…" and "Speaking", with level bars that follow the actual audio output and a stop button.
@@ -73,7 +73,8 @@ Copy that one file to the other Apple Silicon Mac and double-click it. Terminal 
 ## Architecture & Layout
 
 ```
-DynamiteTts.sln
+windows/
+├── DynamiteTts.sln
 ├── src/
 │   └── DynamiteTts/
 │       ├── App.xaml / App.xaml.cs            # App bootstrap, single-instance mutex, shutdown
@@ -117,6 +118,8 @@ DynamiteTts.sln
 │           └── app_speaking.ico              # Speaking tray icon
 └── tests/
     └── DynamiteTts.Tests/                   # xUnit unit test suite
+macos/
+└── DynamiteTTS/                             # Apple Silicon menu-bar app
 ```
 
 ---
@@ -153,14 +156,14 @@ Portable zip users: unzip somewhere permanent, keep `voices` (and `kokoro.onnx` 
 
 ### 1. Build and Run
 ```powershell
-dotnet run --project src/DynamiteTts/DynamiteTts.csproj
+dotnet run --project windows/src/DynamiteTts/DynamiteTts.csproj
 ```
 
 ### 2. Publish Self-Contained Executable
 ```powershell
-./publish.ps1
+./windows/publish.ps1
 ```
-The self-contained `DynamiteTts.exe` will be generated in `artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (downloaded during publish when missing). `publish.ps1` also writes `artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `artifacts/DynamiteTts-Setup-v<version>.exe`.
+The self-contained `DynamiteTts.exe` will be generated in `windows/artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (downloaded during publish when missing). `windows/publish.ps1` also writes `windows/artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `windows/artifacts/DynamiteTts-Setup-v<version>.exe`.
 
 ---
 

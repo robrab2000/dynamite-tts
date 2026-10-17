@@ -19,8 +19,8 @@ artifacts/
 # Large ONNX / voice model downloads (experiment + local caches)
 *.onnx
 *.bin
-experiments/models/
-!experiments/**/*.md
+windows/experiments/models/
+!windows/experiments/**/*.md
 
 # macOS app build
 macos/**/.build/
@@ -37,6 +37,6 @@ $RECYCLE.BIN/
 
 # Benchmark logs
 *.log
-experiments/cuda-runtime/
+windows/experiments/cuda-runtime/
 
-experiments/bubble-shots/
+windows/experiments/bubble-shots/

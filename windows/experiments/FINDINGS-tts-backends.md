@@ -2,7 +2,7 @@
 
 Host: ROB_AERO — AMD Ryzen AI 9 HX 370 (12c/24t, Radeon 890M iGPU, XDNA2 NPU), NVIDIA RTX 5070 Laptop (Blackwell), driver 610.88, 32 GB RAM.
 Model: Kokoro-82M v1.0 ONNX (KokoroSharpBinaries v2.0.0 `kokoro.onnx` fp32 / `kokoro-fp16.onnx`).
-Harness: `experiments/KokoroBench*` (`probe` mode drives `InferenceSession` directly). Raw logs live next to the projects (`*.log`, gitignored).
+Harness: `windows/experiments/KokoroBench*` (`probe` mode drives `InferenceSession` directly). Raw logs live next to the projects (`*.log`, gitignored).
 
 ## Why the app felt slow
 
@@ -58,5 +58,5 @@ Cancel: Stop during segment 2 returns within that segment; a follow-up request's
 ## Remaining options
 
 1. **NPU**: not viable for Kokoro today (no Vitis AI EP without AMD Ryzen AI Software, and no evidence its op coverage includes Kokoro's graph).
-2. **Different model**: Piper (`experiments/models/en_US-lessac-medium.onnx`, ~60 MB) is far cheaper on CPU but noticeably lower voice quality; not benchmarked for latency here.
+2. **Different model**: Piper (`windows/experiments/models/en_US-lessac-medium.onnx`, ~60 MB) is far cheaper on CPU but noticeably lower voice quality; not benchmarked for latency here.
 3. **Ship the CUDA provider DLL on demand too**: `onnxruntime_providers_cuda.dll` (167 MB) currently ships inside the single-file exe; it could join the runtime download to shrink the executable.

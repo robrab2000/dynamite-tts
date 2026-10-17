@@ -41,7 +41,7 @@ internal static class Program
         var modelPath = ResolveModelPath();
         if (modelPath == null)
         {
-            Console.WriteLine("ERROR: No usable ONNX model in experiments/models/.");
+            Console.WriteLine("ERROR: No usable ONNX model in windows/experiments/models/.");
             return 2;
         }
 
@@ -421,13 +421,13 @@ internal static class Program
         sb.AppendLine();
         sb.AppendLine("## Next steps for NPU TTS");
         sb.AppendLine("1. Install [AMD Ryzen AI Software](https://ryzenai.docs.amd.com/) and NPU drivers.");
-        sb.AppendLine("2. Re-run `dotnet run --project experiments/NpuTtsSpike`.");
+        sb.AppendLine("2. Re-run `dotnet run --project windows/experiments/NpuTtsSpike`.");
         sb.AppendLine("3. If VitisAI session OK, inspect `vitisai_ep_report.json` for NPU vs CPU node assignment.");
         sb.AppendLine("4. Only if meaningful NPU offload: wire a Piper/Vitis path into Dynamite as an experimental engine.");
         sb.AppendLine();
         sb.AppendLine("## Re-run");
         sb.AppendLine("```powershell");
-        sb.AppendLine("dotnet run --project experiments/NpuTtsSpike");
+        sb.AppendLine("dotnet run --project windows/experiments/NpuTtsSpike");
         sb.AppendLine("```");
 
         File.WriteAllText(path, sb.ToString());
