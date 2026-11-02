@@ -9,7 +9,36 @@ permissions:
   contents: write
 
 jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GTK bindings
+        run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7
+
+      - name: Test
+        working-directory: linux
+        run: python3 -m unittest discover -s tests -t . -v
+
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          mkdir -p artifacts
+          tar -czf "artifacts/DynamiteTts-linux-v${tag}.tar.gz" \
+            --exclude='__pycache__' \
+            linux/dynamite-tts linux/dynamite-tts.desktop linux/install.sh linux/install-lemonade.sh \
+            linux/uninstall.sh linux/dynamite_tts linux/icons LICENSE README.md
+
+      - name: Upload Linux tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: artifacts/DynamiteTts-linux-v*.tar.gz
+
   release:
+    needs: linux
     runs-on: windows-latest
     defaults:
       run:
@@ -17,6 +46,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download Linux tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: windows/artifacts
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -47,8 +82,10 @@ jobs:
         run: |
           $zip = Get-ChildItem artifacts/DynamiteTts-win-x64-v*.zip | Select-Object -First 1
           $setup = Get-ChildItem artifacts/DynamiteTts-Setup-v*.exe | Select-Object -First 1
+          $linux = Get-ChildItem artifacts/DynamiteTts-linux-v*.tar.gz | Select-Object -First 1
           if (-not $zip) { throw "Release zip not found under artifacts/" }
           if (-not $setup) { throw "Setup.exe not found under artifacts/ (is Inno Setup installed?)" }
+          if (-not $linux) { throw "Linux tarball not found under artifacts/" }
 
           $tag = "${{ github.ref_name }}"
           # Generic install/notes boilerplate. Prefer editing the published release body
@@ -62,6 +99,8 @@ jobs:
 
           Portable zip: ``$($zip.Name)`` (same files, no installer).
 
+          Linux: ``$($linux.Name)`` — unpack and run ``linux/install.sh`` (see the README's Linux section).
+
           ## Notes
           - Builds are **unsigned**; SmartScreen may warn — More info → Run anyway.
           - Requires 64-bit Windows 10 1809+ or Windows 11.
@@ -73,7 +112,7 @@ jobs:
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
             # Existing release: upload assets only so manually edited What's new notes are preserved.
-            gh release upload $tag $setup.FullName $zip.FullName --clobber
+            gh release upload $tag $setup.FullName $zip.FullName $linux.FullName --clobber
           } else {
-            gh release create $tag $setup.FullName $zip.FullName --title "Dynamite TTS $tag" --notes $notes
+            gh release create $tag $setup.FullName $zip.FullName $linux.FullName --title "Dynamite TTS $tag" --notes $notes
           }
