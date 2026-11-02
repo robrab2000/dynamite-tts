@@ -207,6 +207,9 @@ class SettingsWindow(Gtk.Window):
 
         footer = Gtk.Box(spacing=6)
         footer.set_margin_top(8)
+        self._status = Gtk.Label(label="Ready", xalign=0)
+        self._status.get_style_context().add_class("dim-label")
+        footer.pack_start(self._status, True, True, 0)
         close = Gtk.Button(label="Close")
         close.connect("clicked", lambda *_: self.destroy())
         footer.pack_end(close, False, False, 0)
@@ -217,6 +220,10 @@ class SettingsWindow(Gtk.Window):
         self._refresh_health()
         self._health_source = GLib.timeout_add_seconds(5, self._refresh_health)
         self.connect("destroy", lambda *_: GLib.source_remove(self._health_source))
+
+    def set_status(self, text: str) -> None:
+        """Mirror the phase or notice here: GNOME hides banners from the focused app, and that may be this window."""
+        self._status.set_text(text)
 
     def _set(self, attr: str, value) -> None:
         if getattr(self.store.current, attr) == value:

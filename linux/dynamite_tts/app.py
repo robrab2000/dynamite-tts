@@ -157,6 +157,8 @@ class DynamiteApp:
         applog.write(f"phase: {title}")
         if self.indicator is not None:
             self.indicator.set_icon_full(_icon_for(phase), f"{APP_NAME} ({title})")
+        if self.settings_window is not None:
+            self.settings_window.set_status(title)
         if not self.store.current.show_status_notifications:
             self.status.hide()
             return
@@ -167,6 +169,8 @@ class DynamiteApp:
 
     def show_notice(self, text: str) -> None:
         applog.write(f"notice: {text}")
+        if self.settings_window is not None:
+            self.settings_window.set_status(text)
         if self.store.current.show_status_notifications:
             self.status.show_notice(text)
 
@@ -183,7 +187,8 @@ class DynamiteApp:
         elif command == "quit":
             GLib.idle_add(lambda: self.quit() or False)
         elif command == "ping":
-            return f"ok phase={self._phase or 'Ready'} mode={self.store.current.speak_mode.value}"
+            return (f"ok phase={self._phase or 'Ready'} mode={self.store.current.speak_mode.value} "
+                    f"settings={'open' if self.settings_window is not None else 'closed'}")
         elif command.startswith("speak-text "):
             self.speech.speak(command[len("speak-text "):])
         else:

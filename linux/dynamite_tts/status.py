@@ -7,9 +7,16 @@ top-centre, exactly where the Windows and macOS bubbles sit. It carries a Stop a
 """
 from __future__ import annotations
 
+import time
+
 from gi.repository import GLib
 
 from . import APP_NAME, applog
+
+# GNOME hides a banner after a few seconds. Updating that notification in place afterwards
+# changes the entry in the message list but does not pop a new banner, so after this long
+# a fresh notification is created instead.
+BANNER_SECONDS = 3.0
 
 try:
     import gi
@@ -29,6 +36,7 @@ class StatusNotifier:
         self._icon = icon_name
         self._notification = None
         self._hide_source = None
+        self._shown_at = 0.0
         self._enabled = False
         if _HAVE_NOTIFY and Notify.init(APP_NAME):
             self._enabled = True
@@ -39,6 +47,8 @@ class StatusNotifier:
         if not self._enabled:
             return
         self._cancel_hide()
+        if self._notification is not None and time.monotonic() - self._shown_at > BANNER_SECONDS:
+            self.hide()
         if self._notification is None:
             self._notification = Notify.Notification.new(APP_NAME, text, self._icon)
             self._notification.set_hint("desktop-entry", GLib.Variant("s", "dynamite-tts"))
@@ -46,6 +56,7 @@ class StatusNotifier:
             self._notification.connect("closed", self._closed)
         else:
             self._notification.update(APP_NAME, text, self._icon)
+        self._shown_at = time.monotonic()
         self._notification.clear_actions()
         if persistent:
             self._notification.add_action("stop", "Stop", lambda *_: self._on_stop())
