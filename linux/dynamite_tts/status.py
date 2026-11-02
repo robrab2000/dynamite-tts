@@ -18,6 +18,12 @@ from . import APP_NAME, applog
 # a fresh notification is created instead.
 BANNER_SECONDS = 3.0
 
+# GNOME Shell 50 can wedge its message tray (JS error "this._notification is null" in
+# messageTray.js) when a notification is closed moments after it was created; after
+# that no app gets banners until the session restarts. Closes are therefore deferred
+# until the notification has been on screen at least this long.
+MIN_LIFETIME_SECONDS = 2.0
+
 try:
     import gi
 
@@ -36,6 +42,7 @@ class StatusNotifier:
         self._icon = icon_name
         self._notification = None
         self._hide_source = None
+        self._close_source = None
         self._shown_at = 0.0
         self._enabled = False
         if _HAVE_NOTIFY and Notify.init(APP_NAME):
@@ -77,10 +84,18 @@ class StatusNotifier:
         if self._notification is None:
             return
         notification, self._notification = self._notification, None
+        remaining = MIN_LIFETIME_SECONDS - (time.monotonic() - self._shown_at)
+        if remaining <= 0:
+            self._close(notification)
+        else:
+            GLib.timeout_add(int(remaining * 1000) + 50, self._close, notification)
+
+    def _close(self, notification) -> bool:
         try:
             notification.close()
         except GLib.Error:
             pass
+        return False
 
     def _hide_timeout(self) -> bool:
         self._hide_source = None
