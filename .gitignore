@@ -40,3 +40,7 @@ $RECYCLE.BIN/
 windows/experiments/cuda-runtime/
 
 windows/experiments/bubble-shots/
+
+# Python
+__pycache__/
+*.pyc

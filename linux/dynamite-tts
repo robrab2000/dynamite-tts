@@ -1,0 +1,5 @@
+#!/bin/bash
+# Launcher: runs the package next to this script with the system Python and GTK bindings.
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+export PYTHONPATH="${here}${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m dynamite_tts "$@"

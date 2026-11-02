@@ -1,6 +1,6 @@
-# Dynamite TTS — Windows Highlight-to-Speech
+# Dynamite TTS — Highlight-to-Speech for Windows, macOS, and Linux
 
-A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model.
+A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model. The Linux tray app is in `linux/` and uses Lemonade’s CPU Kokoro and llama.cpp backends the same way.
 
 ```bash
 ./macos/install-lemonade.sh
@@ -22,6 +22,38 @@ bash DynamiteTTS-install.command
 ```
 
 The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. It needs Apple Silicon and macOS 15 or later. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
+
+## Linux
+
+A GTK tray app for GNOME (Wayland or X11) and other desktops. Like the Mac app it speaks through Lemonade, so there is nothing to compile: it needs only Python 3 with the GTK bindings that Ubuntu already ships.
+
+```bash
+./linux/install.sh
+```
+
+The script installs the system packages with `apt` (asks for your password once), puts Lemonade and the app under `~/.local`, downloads the Kokoro voice and the chat model, and starts the tray icon. It needs Ubuntu 24.04 or later, or any distribution with Python 3.11+, GTK 3, libnotify, and PipeWire or PulseAudio. Highlight some text and press `Ctrl+Shift+S`; `Ctrl+Shift+M` cycles Verbatim → Summary → Explain.
+
+How it differs from the other platforms:
+
+- **No clipboard tricks.** On Linux a highlight *is* the PRIMARY selection, so the app reads it directly with `wl-paste` (Wayland) or `xclip` (X11). Your clipboard is never touched, and no fake `Ctrl+C` is sent.
+- **Shortcuts belong to the desktop.** Wayland does not let a background app grab keys. On GNOME the app registers two custom shortcuts (Settings → Keyboard → Custom Shortcuts) that run `dynamite-tts speak` and `dynamite-tts toggle-mode`, and those commands reach the running app over a Unix socket. On KDE, Sway, or Hyprland bind those two commands yourself; they work the same.
+- **Status is a notification.** A compositor will not let an app float a pill at the top of the screen without taking focus, so phases (`Summarizing…`, `Speaking`) are a desktop notification with a Stop button that is updated in place and closed when speech ends. GNOME draws it top-centre.
+- **Tray icon via AppIndicator.** Ubuntu's GNOME has the AppIndicator extension on by default; on stock GNOME enable it (or use the CLI and the Settings window without a tray).
+
+Useful commands:
+
+```bash
+dynamite-tts              # start (or raise Settings if already running)
+dynamite-tts speak        # read the highlight (what the shortcut runs)
+dynamite-tts toggle-mode  # Verbatim → Summary → Explain
+dynamite-tts stop | settings | ping | quit
+dynamite-tts --speak "Hello"
+./linux/uninstall.sh      # remove the app, shortcuts, and settings (add --purge for Lemonade too)
+```
+
+Settings live in `~/.config/dynamite-tts/settings.json`, the log in `~/.local/state/dynamite-tts/dynamite.log`, and Lemonade plus its models in `~/.local/share/dynamite-tts/lemonade`. To run from the checkout without installing: `./linux/dynamite-tts`. Unit tests: `cd linux && python3 -m unittest discover -s tests -t .`.
+
+Measured on a 6-core i7-8750H (CPU only): about 1 s to first audio for a short sentence, 2.5–3 s for a paragraph, and synthesis runs about 3x realtime, so playback starts on the first chunk while the rest renders. The optional `llamacpp:vulkan` backend speeds up Summary and Explain on a GPU: `~/.local/share/dynamite-tts/lemonade/lemonade backends install llamacpp:vulkan`.
 
 ---
 
@@ -127,11 +159,27 @@ windows/
     └── DynamiteTts.Tests/                   # xUnit unit test suite
 macos/
 └── DynamiteTTS/                             # Apple Silicon menu-bar app
+linux/
+├── dynamite-tts                             # Launcher (python3 -m dynamite_tts)
+├── install.sh / install-lemonade.sh / uninstall.sh
+├── dynamite_tts/
+│   ├── app.py                               # AppIndicator tray, menu, phases, control-socket commands
+│   ├── speech.py                            # Speech lifecycle: cleanup → chat (Summary/Explain) → streamed Kokoro
+│   ├── lemonade.py                          # Lemonade HTTP client: health, load/pull, chat, PCM stream; starts lemond
+│   ├── playback.py                          # PCM piped to pw-play / paplay / aplay from a writer thread; chime; levels
+│   ├── selection.py                         # PRIMARY selection via wl-paste / xclip / xsel / GTK (clipboard fallback)
+│   ├── hotkeys.py                           # GNOME custom keybindings → `dynamite-tts speak` / `toggle-mode`
+│   ├── control.py                           # Single-instance lock and the Unix control socket
+│   ├── status.py                            # Phase notifications with a Stop action (libnotify)
+│   ├── settings.py / settings_window.py     # ~/.config/dynamite-tts/settings.json and the GTK Settings window
+│   ├── text.py                              # Same sanitizer and Summary/Explain prompts as the other platforms
+│   └── autostart.py                         # ~/.config/autostart entry for Launch at login
+└── tests/                                   # unittest suite (no audio hardware needed)
 ```
 
 ---
 
-## Prerequisites
+## Prerequisites (Windows)
 
 - Windows 10 (1809+) or Windows 11 (x64)
 - [.NET 9.0 SDK](https://dotnet.microsoft.com/) (for building from source only)
