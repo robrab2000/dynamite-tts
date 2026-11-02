@@ -27,7 +27,7 @@ fi
 if [[ -f "${ROOT}/${PHONON_LIB}" ]]; then
   phonon_files+=("${PHONON_LIB}")
 else
-  echo "No Phonon shim built (Rust is not installed); the installer will offer Kokoro only." >&2
+  echo "No Phonon shim built (Rust is not installed); the installed app will not be able to speak with Phonon." >&2
 fi
 
 COPYFILE_DISABLE=1 tar -czf "$archive" \

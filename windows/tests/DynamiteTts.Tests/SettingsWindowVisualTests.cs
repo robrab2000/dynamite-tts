@@ -57,6 +57,11 @@ public class SettingsWindowVisualTests
 
             var settingsPath = Path.Combine(Path.GetTempPath(), $"settings_ui_{Guid.NewGuid():N}.json");
             var store = new AppSettingsStore(settingsPath);
+            // The exercise starts on Kokoro and switches to Phonon. Seed that, because a fresh
+            // settings file now defaults to Phonon on an AVX2 machine.
+            var seeded = store.Current;
+            seeded.EngineMode = AppSettings.EngineKokoro;
+            store.Save(seeded);
             using var trayHost = new TrayIconHost();
             var kokoro = new LocalTtsService { AutoDownloadGpuRuntime = false };
             var phonon = new PhononTtsService();

@@ -120,7 +120,7 @@ jobs:
           ## Notes
           - Builds are **unsigned**; SmartScreen may warn — More info → Run anyway.
           - Requires 64-bit Windows 10 1809+ or Windows 11.
-          - Self-contained (no separate .NET install). The Kokoro and Phonon speech models are bundled so speech works on first launch.
+          - Self-contained (no separate .NET install). The Phonon speech model is bundled so speech works on first launch; the Kokoro model downloads the first time Kokoro is chosen.
           - Optional GPU acceleration may download the CUDA runtime (~1 GB) on first use.
           - Summary and Explain modes need a local [Lemonade Server](https://lemonade-server.ai) install.
           "@

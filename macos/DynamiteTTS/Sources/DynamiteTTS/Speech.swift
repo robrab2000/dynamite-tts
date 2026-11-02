@@ -15,6 +15,7 @@ final class SpeechSession {
     private var generation = 0
     private var streamFinished = false
     private var receivedAudio = false
+    private var kokoroBackendInstalled = false
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -166,8 +167,21 @@ final class SpeechSession {
     // MARK: - Kokoro (Lemonade)
 
     private func speakWithKokoro(_ spoken: String, baseURL: URL, settings: AppSettings, token: Int) async throws {
+        // The installer leaves Kokoro out; its backend and voice (about 340 MB) arrive the first time it is used.
+        if !kokoroBackendInstalled {
+            onPhase?("Installing Kokoro…")
+            try await client.installBackend(baseURL: baseURL, recipe: "kokoro", backend: "metal")
+            kokoroBackendInstalled = true
+            try Task.checkCancellation()
+        }
         onPhase?("Synthesizing…")
-        try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1")
+        try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1") { [weak self] in
+            AppLog.write("kokoro-v1 not downloaded; pulling")
+            Task { @MainActor in
+                guard let self, token == self.generation else { return }
+                self.onPhase?("Downloading Kokoro (once)…")
+            }
+        }
         AppLog.write("kokoro ready")
         try Task.checkCancellation()
         try startPlayer(settings)

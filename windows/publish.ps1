@@ -25,7 +25,7 @@ if (-not $Version) {
 
 # Phonon engine shim (Rust). Built before `dotnet publish` so the csproj's Exists() check picks the DLL up.
 $phononCrate = Join-Path $repoRoot "native\phonon"
-$phononDll = Join-Path $phononCrate "targetelease\dynamite_phonon.dll"
+$phononDll = Join-Path $phononCrate "target\release\dynamite_phonon.dll"
 if (-not $SkipPhonon) {
     $cargo = Get-Command cargo -ErrorAction SilentlyContinue
     if ($cargo) {
@@ -70,37 +70,9 @@ if ($LASTEXITCODE -ne 0) {
 Get-ChildItem $OutputPath -Recurse -Include *.pdb, *.lib, *.exp, *.iobj, *.ipdb -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
-function Ensure-KokoroModel {
-    param([string]$PublishDir)
-
-    $target = Join-Path $PublishDir "kokoro.onnx"
-    if ((Test-Path $target) -and ((Get-Item $target).Length -gt 1MB)) {
-        Write-Host "Kokoro model already present: $target"
-        return
-    }
-
-    $repoModel = Join-Path $repoRoot "kokoro.onnx"
-    if ((Test-Path $repoModel) -and ((Get-Item $repoModel).Length -gt 1MB)) {
-        Copy-Item $repoModel $target -Force
-        Write-Host "Copied kokoro.onnx from repo root into publish output."
-        return
-    }
-
-    $url = "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro.onnx"
-    Write-Host "Downloading Kokoro model for a ready-to-run install..." -ForegroundColor Cyan
-    Write-Host "  $url"
-    $tmp = "$target.tmp"
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
-        if ((Get-Item $tmp).Length -lt 1MB) { throw "Downloaded kokoro.onnx looks too small." }
-        Move-Item $tmp $target -Force
-        Write-Host "Model saved to $target ($([math]::Round((Get-Item $target).Length / 1MB, 1)) MB)"
-    }
-    catch {
-        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
-        throw "Failed to obtain kokoro.onnx for the installer: $_"
-    }
-}
+# Kokoro's model (325 MB) is not shipped: the app downloads it the first time Kokoro is chosen.
+# Drop any copy left in the publish folder by older builds.
+Get-ChildItem $OutputPath -Filter "kokoro*.onnx" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 function Ensure-PhononModel {
     param([string]$PublishDir)
@@ -141,12 +113,11 @@ function Ensure-PhononModel {
     Write-Host "Phonon model present: $dir"
 }
 
-if (-not $SkipModelDownload) {
-    Ensure-KokoroModel -PublishDir $OutputPath
-    if (-not $SkipPhonon) { Ensure-PhononModel -PublishDir $OutputPath }
+if (-not $SkipModelDownload -and -not $SkipPhonon) {
+    Ensure-PhononModel -PublishDir $OutputPath
 }
 
-# Portable zip (same payload as the installer: exe + voices + model).
+# Portable zip (same payload as the installer: exe + Kokoro voices + Phonon shim and model).
 $zipName = "DynamiteTts-$Runtime-v$Version.zip"
 $zipPath = Join-Path "artifacts" $zipName
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }

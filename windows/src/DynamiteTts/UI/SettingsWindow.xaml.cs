@@ -69,7 +69,7 @@ public partial class SettingsWindow : Window
     }
 
     private string SelectedEngineTag =>
-        (EngineComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.EngineKokoro;
+        (EngineComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
 
     private string SelectedPhononLanguage =>
         (PhononLanguageComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en";
@@ -585,7 +585,7 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(model))
             model = _settingsStore.Current.Model;
 
-        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
+        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
         var isPhonon = string.Equals(selectedEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
 
         var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
@@ -847,7 +847,7 @@ public partial class SettingsWindow : Window
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
+        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
         var isDirectMl = string.Equals(selectedEngine, "DirectML", StringComparison.OrdinalIgnoreCase);
 
         var endpoint = EndpointTextBox.Text.Trim();
@@ -947,6 +947,15 @@ public partial class SettingsWindow : Window
             _ = _orchestrator.PhononEngine.InitializeAsync(newSettings).ContinueWith(
                 t => AppLog.Warn("Phonon load after save failed", t.Exception?.GetBaseException()),
                 TaskContinuationOptions.OnlyOnFaulted);
+        }
+        else if (newSettings.IsKokoroEngine)
+        {
+            // Kokoro's model is not bundled; choosing the engine starts its one-off download.
+            _ = _orchestrator.LocalEngine.InitializeAsync(
+                    newSettings.UseDirectMlAcceleration, newSettings.DirectMlDeviceId, newSettings.DirectMlModelPrecision)
+                .ContinueWith(
+                    t => AppLog.Warn("Kokoro load after save failed", t.Exception?.GetBaseException()),
+                    TaskContinuationOptions.OnlyOnFaulted);
         }
         Hide();
     }

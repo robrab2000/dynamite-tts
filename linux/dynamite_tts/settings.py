@@ -38,8 +38,8 @@ DEFAULT_MODE_HOTKEY = "<Control><Shift>m"
 
 
 class Engine(str, Enum):
-    KOKORO = "kokoro"  # Lemonade's Kokoro over HTTP
-    PHONON = "phonon"  # Gradium's Phonon in-process (linux/install-phonon.sh)
+    KOKORO = "kokoro"  # Lemonade's Kokoro over HTTP, installed the first time it is used
+    PHONON = "phonon"  # Gradium's Phonon in-process (linux/install-phonon.sh); the default
 
     @property
     def title(self) -> str:
@@ -49,7 +49,7 @@ class Engine(str, Enum):
 @dataclass
 class AppSettings:
     base_url: str = "http://127.0.0.1:13305"
-    engine: Engine = Engine.KOKORO
+    engine: Engine = Engine.PHONON
     voice: str = "af_heart"
     phonon_voice: str = "default"
     phonon_language: str = "en"

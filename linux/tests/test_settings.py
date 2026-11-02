@@ -35,16 +35,17 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.base_url, "http://localhost:1")
         self.assertEqual(settings.speak_hotkey, "<Control><Shift>s")
 
-    def test_engine_fields_round_trip_and_default_to_kokoro(self):
-        self.assertEqual(AppSettings().engine, Engine.KOKORO)
-        self.assertFalse(AppSettings().uses_phonon)
+    def test_engine_fields_round_trip_and_default_to_phonon(self):
+        self.assertEqual(AppSettings().engine, Engine.PHONON)
+        self.assertTrue(AppSettings().uses_phonon)
+        self.assertEqual(AppSettings.from_json({"engine": "kokoro"}).engine, Engine.KOKORO)
         settings = AppSettings.from_json({"engine": "phonon", "phonon_voice": " Easton ", "phonon_language": "EN", "phonon_model_dir": " "})
         self.assertTrue(settings.uses_phonon)
         self.assertEqual(settings.phonon_voice, "Easton")
         self.assertEqual(settings.phonon_language, "en")
         self.assertEqual(settings.phonon_model_dir, "")
         self.assertEqual(settings.to_json()["engine"], "phonon")
-        self.assertEqual(AppSettings.from_json({"engine": "bogus"}).engine, Engine.KOKORO)
+        self.assertEqual(AppSettings.from_json({"engine": "bogus"}).engine, Engine.PHONON)
 
     def test_phonon_voices_list_default_first_then_language(self):
         voices = phonon_voices_for("en")

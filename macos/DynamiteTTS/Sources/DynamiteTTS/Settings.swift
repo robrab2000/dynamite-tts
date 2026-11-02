@@ -79,9 +79,9 @@ struct Hotkey: Codable, Equatable {
 }
 
 enum SpeechEngine: String, Codable, CaseIterable {
-    /// Lemonade's Metal Kokoro over HTTP (the default).
+    /// Lemonade's Metal Kokoro over HTTP; its backend and voice download the first time it is used.
     case kokoro
-    /// Gradium's Phonon in-process through the dynamite_phonon shim (CPU).
+    /// Gradium's Phonon in-process through the dynamite_phonon shim (CPU). The default.
     case phonon
 
     var title: String {
@@ -106,7 +106,7 @@ struct AppSettings: Codable, Equatable {
     var explainSentenceCount: Int = 3
     var explainAudience: ExplainAudience = .technical
     var chatModel: String = "Llama-3.2-1B-Instruct-GGUF"
-    var engine: SpeechEngine = .kokoro
+    var engine: SpeechEngine = .phonon
     /// "default" = the checkpoint's own voice; otherwise a name from the Phonon voice catalogue.
     var phononVoice: String = PhononVoice.defaultId
     /// Text normalization language for Phonon (en, fr, de, es, pt or none).

@@ -70,7 +70,7 @@ Measured with the shim on the same host (CPU only, `model.q8.gguf`, default voic
 
 Engine load: 0.06 s (65 MB q8 weights), so there is no idle-unload logic. End to end through `SpeechOrchestrator` + WASAPI (`EndToEndPlaybackHarnessTests.PhononEngine_*`, 20 s paragraph, Easton voice at 1.15x): first audible 356 ms on a cold engine (including the one-off voice download), 24 ms on a warm one; synthesis finished at 12 s of the 20 s utterance with zero underruns; Stop returns within one frame.
 
-Speaking rate is the one real limitation: `duration_delta` -0.6 → 1.32x, -0.3 → 1.19x, +0.5 → 0.82x (speed ≈ exp(-delta/2)); the app clamps to ±0.8 since the model misreads text beyond that, so the 0.25x–4x slider maps to roughly 0.67x–1.5x on Phonon. Kokoro stays the default engine; Phonon is a setting.
+Speaking rate is the one real limitation: `duration_delta` -0.6 → 1.32x, -0.3 → 1.19x, +0.5 → 0.82x (speed ≈ exp(-delta/2)); the app clamps to ±0.8 since the model misreads text beyond that, so the 0.25x–4x slider maps to roughly 0.67x–1.5x on Phonon. Phonon is the default engine; Kokoro remains available in Settings and its model downloads the first time it is chosen.
 
 ### Phonon on the Mac (Apple M1 Max, 8P+2E cores, macOS 27.0.1)
 

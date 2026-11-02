@@ -12,6 +12,7 @@ from gi.repository import GLib
 
 from . import applog, text as textutil
 from .lemonade import KOKORO_MODEL, LemonadeClient, LemonadeError, PCMStream
+from . import phonon
 from .phonon import PhononError, PhononStream
 from .playback import PCMPlayer, PlaybackError
 from .settings import SettingsStore, SpeakMode
@@ -32,6 +33,7 @@ class SpeechSession:
         self._generation = 0
         self._stream_finished = False
         self._received_audio = False
+        self._kokoro_backend_installed = False
         self.player.on_drained = lambda: GLib.idle_add(self._drained)
 
     # -- public ----------------------------------------------------------------
@@ -84,7 +86,9 @@ class SpeechSession:
     def _run(self, text: str, context: str | None, mode: SpeakMode, token: int) -> None:
         settings = self.store.current
         base_url = settings.base_url
-        needs_lemonade = mode in (SpeakMode.SUMMARY, SpeakMode.EXPLAIN) or not settings.uses_phonon
+        # Kokoro is fetched only when that engine is selected. A missing Phonon install is an error, not a download.
+        use_phonon = settings.uses_phonon
+        needs_lemonade = mode in (SpeakMode.SUMMARY, SpeakMode.EXPLAIN) or not use_phonon
         if needs_lemonade:
             if not base_url.startswith(("http://", "https://")):
                 raise LemonadeError("The Lemonade address is not a valid URL.")
@@ -116,10 +120,24 @@ class SpeechSession:
 
         self._check(token)
         self._phase_async(token, "Synthesizing…")
-        if settings.uses_phonon:
+        if use_phonon:
+            if not phonon.is_installed():
+                raise PhononError("Phonon is not installed. Run linux/install-phonon.sh, then try again.")
             GLib.idle_add(self._start_phonon_stream, token, spoken, settings)
             return
-        self._client.ensure_model(base_url, KOKORO_MODEL)
+        # install.sh leaves Kokoro out; its backend and voice (about 340 MB) arrive the first time it is used.
+        if not self._kokoro_backend_installed:
+            self._phase_async(token, "Installing Kokoro…")
+            self._client.install_backend(base_url, "kokoro", "cpu")
+            self._kokoro_backend_installed = True
+            self._check(token)
+            self._phase_async(token, "Synthesizing…")
+
+        def downloading():
+            applog.write(f"{KOKORO_MODEL} not downloaded; pulling")
+            self._phase_async(token, "Downloading Kokoro (once)…")
+
+        self._client.ensure_model(base_url, KOKORO_MODEL, on_download=downloading)
         self._check(token)
         applog.write("kokoro ready")
         GLib.idle_add(self._start_stream, token, spoken, settings.voice, settings.speed, settings.audio_device)

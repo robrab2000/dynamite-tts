@@ -130,7 +130,8 @@ public class PhononTtsServiceTests
         Assert.Equal("fr", clone.PhononLanguage);
 
         var defaults = new AppSettings();
-        Assert.True(defaults.IsKokoroEngine);
+        Assert.Equal(AppSettings.DefaultEngineMode, defaults.EngineMode);
+        Assert.Equal(System.Runtime.Intrinsics.X86.Avx2.IsSupported, defaults.IsPhononEngine);
         Assert.Equal(PhononVoice.DefaultId, defaults.PhononVoice);
         Assert.Equal("en", defaults.PhononLanguage);
     }

@@ -22,7 +22,9 @@ artifacts/
 *.gguf
 *.safetensors
 windows/experiments/models/
-models/
+# Repo root only. A bare `models/` also hides windows/src/DynamiteTts/Models on a
+# case-insensitive checkout, which kept PhononVoice.cs out of the tree.
+/models/
 
 # Rust build output (Phonon shim)
 windows/native/phonon/target/

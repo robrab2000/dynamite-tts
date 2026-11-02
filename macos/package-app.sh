@@ -28,7 +28,7 @@ IDENTITY="$(choose_identity)"
 
 # The Phonon engine shim (windows/native/phonon). Built with the pinned Cargo.lock when Rust is
 # installed; otherwise a prebuilt copy (make-installer.sh ships one) is used. Without either the
-# app still works with Kokoro and reports Phonon as missing.
+# app builds without Phonon; speaking then reports the shim as missing until this is rerun.
 PHONON_CRATE="${ROOT}/windows/native/phonon"
 PHONON_LIB="${PHONON_CRATE}/target/release/libdynamite_phonon.dylib"
 export PATH="${PATH}:${HOME}/.cargo/bin:/opt/homebrew/bin"
@@ -38,7 +38,7 @@ if command -v cargo >/dev/null 2>&1; then
 elif [[ -f "${PHONON_LIB}" ]]; then
   echo "Rust is not installed; using the prebuilt Phonon shim."
 else
-  echo "Rust is not installed and there is no prebuilt Phonon shim; the app will offer Kokoro only." >&2
+  echo "Rust is not installed and there is no prebuilt Phonon shim; Phonon speech will be unavailable." >&2
   echo "Install Rust (https://rustup.rs, no sudo needed) and run this again to add Phonon." >&2
 fi
 

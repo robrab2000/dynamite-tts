@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.Intrinsics.X86;
 
 namespace DynamiteTts.Models;
 
@@ -21,7 +22,7 @@ public class AppSettings
     public bool PlaySoundOnStop { get; set; } = true;
     public bool ShowStatusBubble { get; set; } = true; // status pill at the top of the screen while reading/synthesizing/speaking
     // Property names below keep their historical JSON names for settings.json compatibility.
-    public string EngineMode { get; set; } = "DirectML"; // "DirectML" = in-process Kokoro (CPU + CUDA), "Phonon" = in-process Phonon (CPU), "LemonadeServer" = HTTP
+    public string EngineMode { get; set; } = DefaultEngineMode; // "DirectML" = in-process Kokoro (CPU + CUDA), "Phonon" = in-process Phonon (CPU), "LemonadeServer" = HTTP
     public bool UseDirectMlAcceleration { get; set; } = true; // allow the NVIDIA GPU (CUDA) to be used
     public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto (GPU when available), -2 = CPU only, 0.. = CUDA device ordinal
     public string DirectMlModelPrecision { get; set; } = "float32"; // "float32" (preferred) or "float16"
@@ -33,6 +34,8 @@ public class AppSettings
     public const string EngineKokoro = "DirectML";
     public const string EnginePhonon = "Phonon";
     public const string EngineLemonade = "LemonadeServer";
+    /// <summary>Phonon, except on CPUs without AVX2, which its x86-64-v3 build cannot run on.</summary>
+    public static string DefaultEngineMode => Avx2.IsSupported ? EnginePhonon : EngineKokoro;
     public bool IsPhononEngine => string.Equals(EngineMode, EnginePhonon, StringComparison.OrdinalIgnoreCase);
     public bool IsKokoroEngine => string.Equals(EngineMode, EngineKokoro, StringComparison.OrdinalIgnoreCase);
     public bool IsLocalEngine => IsPhononEngine || IsKokoroEngine;
