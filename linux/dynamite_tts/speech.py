@@ -12,6 +12,7 @@ from gi.repository import GLib
 
 from . import applog, text as textutil
 from .lemonade import KOKORO_MODEL, LemonadeClient, LemonadeError, PCMStream
+from .phonon import PhononError, PhononStream
 from .playback import PCMPlayer, PlaybackError
 from .settings import SettingsStore, SpeakMode
 
@@ -27,7 +28,7 @@ class SpeechSession:
         self.on_phase = None  # callable(str | None)
         self.on_notice = None  # callable(str)
         self._client = LemonadeClient()
-        self._stream: PCMStream | None = None
+        self._stream: PCMStream | PhononStream | None = None
         self._generation = 0
         self._stream_finished = False
         self._received_audio = False
@@ -43,7 +44,11 @@ class SpeechSession:
         self._generation += 1
         token = self._generation
         active_mode = mode or self.store.current.speak_mode
-        applog.write(f"speak chars={len(text)} mode={active_mode.value} voice={self.store.current.voice}")
+        current = self.store.current
+        applog.write(
+            f"speak chars={len(text)} mode={active_mode.value} engine={current.engine.value} "
+            f"voice={current.phonon_voice if current.uses_phonon else current.voice}"
+        )
         threading.Thread(
             target=self._run_guarded, args=(text, context, active_mode, token), name="speech", daemon=True
         ).start()
@@ -65,7 +70,7 @@ class SpeechSession:
             self._run(text, context, mode, token)
         except _Cancelled:
             return
-        except (LemonadeError, PlaybackError) as error:
+        except (LemonadeError, PhononError, PlaybackError) as error:
             applog.write(f"speak failed: {error}")
             self._fail(token, str(error))
         except Exception as error:  # noqa: BLE001 - keep the app alive and report
@@ -79,13 +84,14 @@ class SpeechSession:
     def _run(self, text: str, context: str | None, mode: SpeakMode, token: int) -> None:
         settings = self.store.current
         base_url = settings.base_url
-        if not base_url.startswith(("http://", "https://")):
-            raise LemonadeError("The Lemonade address is not a valid URL.")
-
-        self._phase_async(token, "Starting Lemonade…")
-        self._client.ensure_server(base_url, cancelled=lambda: token != self._generation)
-        self._check(token)
-        applog.write(f"lemonade ready {base_url}")
+        needs_lemonade = mode in (SpeakMode.SUMMARY, SpeakMode.EXPLAIN) or not settings.uses_phonon
+        if needs_lemonade:
+            if not base_url.startswith(("http://", "https://")):
+                raise LemonadeError("The Lemonade address is not a valid URL.")
+            self._phase_async(token, "Starting Lemonade…")
+            self._client.ensure_server(base_url, cancelled=lambda: token != self._generation)
+            self._check(token)
+            applog.write(f"lemonade ready {base_url}")
 
         spoken = text
         if mode in (SpeakMode.SUMMARY, SpeakMode.EXPLAIN):
@@ -110,6 +116,9 @@ class SpeechSession:
 
         self._check(token)
         self._phase_async(token, "Synthesizing…")
+        if settings.uses_phonon:
+            GLib.idle_add(self._start_phonon_stream, token, spoken, settings)
+            return
         self._client.ensure_model(base_url, KOKORO_MODEL)
         self._check(token)
         applog.write("kokoro ready")
@@ -147,6 +156,39 @@ class SpeechSession:
         stream.start(self.store.current.base_url, spoken, voice, speed)
         return False
 
+    def _start_phonon_stream(self, token: int, spoken: str, settings) -> bool:
+        if token != self._generation:
+            return False
+        applog.write(f"player prepare device={settings.audio_device or 'default'}")
+        try:
+            self.player.prepare(settings.audio_device)
+        except PlaybackError as error:
+            self._fail(token, str(error))
+            return False
+        self._stream_finished = False
+        self._received_audio = False
+
+        first = [True]
+
+        def on_pcm(data: bytes) -> None:
+            if token != self._generation:
+                return
+            self.player.enqueue(data)
+            if first[0]:
+                first[0] = False
+                GLib.idle_add(self._first_audio, token, len(data))
+
+        def on_complete(error) -> None:
+            GLib.idle_add(self._complete, token, error)
+
+        stream = PhononStream(on_pcm, on_complete)
+        self._stream = stream
+        applog.write(
+            f"phonon request chars={len(spoken)} voice={settings.phonon_voice} speed={settings.speed} lang={settings.phonon_language}"
+        )
+        stream.start(spoken, settings.phonon_voice, settings.speed, settings.phonon_language, settings.phonon_model_dir)
+        return False
+
     def _first_audio(self, token: int, size: int) -> bool:
         if token != self._generation:
             return False
@@ -164,7 +206,7 @@ class SpeechSession:
             self.player.stop(play_chime=False)
             self._phase(None)
         elif not self._received_audio:
-            self._notice("Lemonade returned no audio.")
+            self._notice("Phonon returned no audio." if self.store.current.uses_phonon else "Lemonade returned no audio.")
             self.player.stop(play_chime=False)
             self._phase(None)
         else:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Remove the app, shortcuts, autostart entry, and settings. Lemonade and its models stay unless --purge is given.
+# Remove the app, shortcuts, autostart entry, and settings. Lemonade, Phonon and their models stay unless --purge is given.
 set -euo pipefail
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/dynamite-tts"
 "${HOME}/.local/bin/dynamite-tts" quit >/dev/null 2>&1 || true
@@ -16,7 +16,7 @@ rm -rf "${DATA}/app" "${XDG_CONFIG_HOME:-$HOME/.config}/dynamite-tts" "${XDG_STA
 if [[ "${1:-}" == "--purge" ]]; then
   pkill -f "${DATA}/lemonade/lemond" >/dev/null 2>&1 || true
   rm -rf "${DATA}"
-  echo "Removed Dynamite TTS and Lemonade."
+  echo "Removed Dynamite TTS, Lemonade and Phonon."
 else
-  echo "Removed Dynamite TTS. Lemonade and its models remain in ${DATA}/lemonade (use --purge to remove them)."
+  echo "Removed Dynamite TTS. Lemonade (${DATA}/lemonade) and Phonon (${DATA}/phonon-venv) remain; use --purge to remove them."
 fi

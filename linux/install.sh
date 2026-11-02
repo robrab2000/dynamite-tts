@@ -68,6 +68,7 @@ rm -rf "${APP}/dynamite_tts" "${APP}/icons"
 cp -R "${SRC}/dynamite_tts" "${SRC}/icons" "${APP}/"
 find "${APP}" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "${SRC}/dynamite-tts" "${APP}/dynamite-tts"
+cp "${SRC}/install-phonon.sh" "${APP}/install-phonon.sh"
 chmod +x "${APP}/dynamite-tts"
 ln -sf "${APP}/dynamite-tts" "${BIN}/dynamite-tts"
 cp "${SRC}/icons/dynamite-tts-idle.png" "${HOME}/.local/share/icons/hicolor/128x128/apps/dynamite-tts.png"
@@ -113,6 +114,14 @@ echo "== Models =="
 echo "Downloading the Kokoro voice and the chat model. This can take a few minutes the first time."
 "${cli}" pull kokoro-v1
 "${cli}" pull Llama-3.2-1B-Instruct-GGUF
+
+echo
+echo "== Phonon (optional in-process engine) =="
+if "${SRC}/install-phonon.sh"; then
+  echo "Phonon is available under Settings → Engine."
+else
+  echo "Phonon setup failed; the app still works with Kokoro through Lemonade. Rerun ${SRC}/install-phonon.sh later."
+fi
 
 echo
 echo "== Launch =="

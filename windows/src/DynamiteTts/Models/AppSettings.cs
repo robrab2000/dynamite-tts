@@ -21,11 +21,21 @@ public class AppSettings
     public bool PlaySoundOnStop { get; set; } = true;
     public bool ShowStatusBubble { get; set; } = true; // status pill at the top of the screen while reading/synthesizing/speaking
     // Property names below keep their historical JSON names for settings.json compatibility.
-    public string EngineMode { get; set; } = "DirectML"; // "DirectML" = in-process local engine (CPU + CUDA), "LemonadeServer" = HTTP
+    public string EngineMode { get; set; } = "DirectML"; // "DirectML" = in-process Kokoro (CPU + CUDA), "Phonon" = in-process Phonon (CPU), "LemonadeServer" = HTTP
     public bool UseDirectMlAcceleration { get; set; } = true; // allow the NVIDIA GPU (CUDA) to be used
     public int DirectMlDeviceId { get; set; } = -1; // -1 = Auto (GPU when available), -2 = CPU only, 0.. = CUDA device ordinal
     public string DirectMlModelPrecision { get; set; } = "float32"; // "float32" (preferred) or "float16"
     public int GpuIdleUnloadMinutes { get; set; } = 5; // unload the CUDA session after this many idle minutes so the dGPU can sleep
+    public string PhononVoice { get; set; } = "default"; // "default" = the checkpoint's own voice; otherwise a name from the Phonon voice catalogue
+    public string PhononModelDir { get; set; } = string.Empty; // empty = bundled/downloaded phonon-31m-en; otherwise a checkpoint folder (e.g. the gated 40M multilingual model)
+    public string PhononLanguage { get; set; } = "en"; // text normalization language for Phonon (en, fr, de, es, pt, ...)
+
+    public const string EngineKokoro = "DirectML";
+    public const string EnginePhonon = "Phonon";
+    public const string EngineLemonade = "LemonadeServer";
+    public bool IsPhononEngine => string.Equals(EngineMode, EnginePhonon, StringComparison.OrdinalIgnoreCase);
+    public bool IsKokoroEngine => string.Equals(EngineMode, EngineKokoro, StringComparison.OrdinalIgnoreCase);
+    public bool IsLocalEngine => IsPhononEngine || IsKokoroEngine;
 
     public static int ClampExplainSentenceCount(int value) => Math.Clamp(value, 1, 8);
 
@@ -61,7 +71,10 @@ public class AppSettings
             UseDirectMlAcceleration = UseDirectMlAcceleration,
             DirectMlDeviceId = DirectMlDeviceId,
             DirectMlModelPrecision = DirectMlModelPrecision,
-            GpuIdleUnloadMinutes = GpuIdleUnloadMinutes
+            GpuIdleUnloadMinutes = GpuIdleUnloadMinutes,
+            PhononVoice = PhononVoice,
+            PhononModelDir = PhononModelDir,
+            PhononLanguage = PhononLanguage
         };
     }
 }

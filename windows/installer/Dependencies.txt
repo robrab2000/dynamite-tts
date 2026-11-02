@@ -3,6 +3,8 @@ Dynamite TTS — what this installer includes
 INCLUDED (always)
 • Dynamite TTS tray app (self-contained; no separate .NET install)
 • Kokoro voices + speech model for local text-to-speech (Verbatim mode works offline after install)
+• Phonon speech engine + the Phonon 31M English model (Gradium, Apache 2.0): an alternative local
+  voice with ~100 downloadable voices; selectable under Settings → Inference Engine
 
 OPTIONAL (next page — you can opt out)
 • Lemonade Server (AMD) — needed for Summary and Explain modes (process selection, then speak).
@@ -15,7 +17,9 @@ LATER / ON DEMAND (not installed here)
 
 Hardware notes
 • Verbatim (Kokoro) works on any supported 64-bit Windows 10/11 PC (CPU; GPU optional).
+• Phonon runs on the CPU only and needs an x86-64-v3 processor (AVX2; Intel Haswell / AMD
+  Excavator from 2013-2015 or newer). First audio in well under 0.1 s, about 10x realtime.
 • Summary / Explain need Lemonade + enough RAM for a small local LLM. AMD NPU/GPU is optional
   and only makes chat faster — it is not required for the default tiny model.
 
-Privacy: spoken/summarized/explained text stays on this machine when using local Kokoro and local Lemonade.
+Privacy: spoken/summarized/explained text stays on this machine when using local Kokoro or Phonon and local Lemonade.

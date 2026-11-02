@@ -58,6 +58,22 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      - name: Setup Rust (Phonon engine shim)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            windows/native/phonon/target
+          key: phonon-${{ runner.os }}-${{ hashFiles('windows/native/phonon/Cargo.lock') }}
+
+      - name: Build Phonon engine shim
+        working-directory: windows/native/phonon
+        run: cargo build --release --locked
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
@@ -104,7 +120,7 @@ jobs:
           ## Notes
           - Builds are **unsigned**; SmartScreen may warn — More info → Run anyway.
           - Requires 64-bit Windows 10 1809+ or Windows 11.
-          - Self-contained (no separate .NET install). The Kokoro voice model is bundled so speech works on first launch.
+          - Self-contained (no separate .NET install). The Kokoro and Phonon speech models are bundled so speech works on first launch.
           - Optional GPU acceleration may download the CUDA runtime (~1 GB) on first use.
           - Summary and Explain modes need a local [Lemonade Server](https://lemonade-server.ai) install.
           "@

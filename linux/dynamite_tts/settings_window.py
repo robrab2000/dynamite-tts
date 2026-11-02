@@ -12,7 +12,8 @@ from . import APP_NAME, applog  # noqa: E402
 from .hotkeys import display_name, launcher_command  # noqa: E402
 from .lemonade import LemonadeClient  # noqa: E402
 from .playback import list_output_devices  # noqa: E402
-from .settings import VOICES, ExplainAudience, SpeakMode  # noqa: E402
+from . import phonon  # noqa: E402
+from .settings import PHONON_LANGUAGES, VOICES, Engine, ExplainAudience, SpeakMode, phonon_voices_for  # noqa: E402
 
 PREVIEW_TEXT = "Hi, this is Dynamite TTS. Highlight some text and press the shortcut to hear it read aloud."
 
@@ -113,16 +114,40 @@ class SettingsWindow(Gtk.Window):
         self._row(grid, row, "Speak mode", mode)
         row += 1
 
+        # Engine
+        engine = Gtk.ComboBoxText()
+        for item in Engine:
+            engine.append(item.value, item.title)
+        engine.set_active_id(current.engine.value)
+        engine.connect("changed", self._on_engine_changed)
+        self._row(grid, row, "Engine", engine)
+        row += 1
+        self._engine_hint = Gtk.Label(xalign=0, wrap=True)
+        self._engine_hint.get_style_context().add_class("dim-label")
+        grid.attach(self._engine_hint, 1, row, 1, 1)
+        row += 1
+
+        # Phonon text language (shown for Phonon)
+        self._language = Gtk.ComboBoxText()
+        for code, label in PHONON_LANGUAGES:
+            self._language.append(code, label)
+        if self._language.set_active_id(current.phonon_language) is False:
+            self._language.append(current.phonon_language, current.phonon_language)
+            self._language.set_active_id(current.phonon_language)
+        self._language.connect("changed", self._on_language_changed)
+        self._language_label = Gtk.Label(label="Text language", xalign=1.0)
+        self._language_label.get_style_context().add_class("dim-label")
+        grid.attach(self._language_label, 0, row, 1, 1)
+        self._language.set_hexpand(True)
+        grid.attach(self._language, 1, row, 1, 1)
+        row += 1
+
         # Voice + preview
         voice_box = Gtk.Box(spacing=6)
-        voice = Gtk.ComboBoxText()
-        ids = [v[0] for v in VOICES]
-        if current.voice not in ids:
-            voice.append(current.voice, current.voice)
-        for voice_id, name in VOICES:
-            voice.append(voice_id, name)
-        voice.set_active_id(current.voice)
-        voice.connect("changed", lambda c: self._set("voice", c.get_active_id()))
+        self._voice = Gtk.ComboBoxText()
+        self._fill_voices()
+        self._voice.connect("changed", self._on_voice_changed)
+        voice = self._voice
         voice.set_hexpand(True)
         preview = Gtk.Button(label="Preview")
         preview.connect("clicked", lambda *_: self.app.speech.speak(PREVIEW_TEXT, mode=SpeakMode.VERBATIM))
@@ -231,6 +256,69 @@ class SettingsWindow(Gtk.Window):
         self.store.update(lambda s: setattr(s, attr, value))
         applog.write(f"setting {attr} changed")
         self.app.apply_settings()
+
+    # -- engine / voices ---------------------------------------------------------
+    def _fill_voices(self) -> None:
+        current = self.store.current
+        self._filling_voices = True
+        try:
+            self._voice.remove_all()
+            if current.uses_phonon:
+                choices = phonon_voices_for(current.phonon_language)
+                selected = current.phonon_voice
+            else:
+                choices = list(VOICES)
+                selected = current.voice
+            if selected not in {c[0] for c in choices}:
+                self._voice.append(selected, selected)
+            for voice_id, name in choices:
+                self._voice.append(voice_id, name)
+            self._voice.set_active_id(selected)
+        finally:
+            self._filling_voices = False
+        self._refresh_engine_hint()
+
+    def _on_voice_changed(self, combo) -> None:
+        if getattr(self, "_filling_voices", False):
+            return
+        voice_id = combo.get_active_id()
+        if not voice_id:
+            return
+        self._set("phonon_voice" if self.store.current.uses_phonon else "voice", voice_id)
+
+    def _on_engine_changed(self, combo) -> None:
+        value = combo.get_active_id()
+        if not value:
+            return
+        self._set("engine", Engine(value))
+        self._fill_voices()
+
+    def _on_language_changed(self, combo) -> None:
+        code = combo.get_active_id()
+        if not code:
+            return
+        self._set("phonon_language", code)
+        if self.store.current.uses_phonon:
+            self._fill_voices()
+
+    def _refresh_engine_hint(self) -> None:
+        if not hasattr(self, "_engine_hint"):
+            return
+        uses_phonon = self.store.current.uses_phonon
+        for widget in (self._language, self._language_label):
+            widget.set_visible(uses_phonon)
+            widget.set_no_show_all(not uses_phonon)
+        if not uses_phonon:
+            self._engine_hint.set_text("Kokoro runs inside Lemonade; about a second to first audio.")
+        elif phonon.is_installed():
+            self._engine_hint.set_text(
+                "Gradium's Phonon runs inside the app on the CPU: first audio in well under 0.1 s, about 10x realtime. "
+                "Catalogue voices are downloaded the first time you pick them."
+            )
+        else:
+            self._engine_hint.set_markup(
+                "Phonon is not installed yet. Run <tt>linux/install-phonon.sh</tt> from the checkout (no root needed)."
+            )
 
     def _refresh_health(self) -> bool:
         base_url = self.store.current.base_url

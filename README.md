@@ -1,6 +1,6 @@
 # Dynamite TTS — Highlight-to-Speech for Windows, macOS, and Linux
 
-A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model. The Linux tray app is in `linux/` and uses Lemonade’s CPU Kokoro and llama.cpp backends the same way.
+A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro or [Phonon](https://github.com/gradium-ai/xn-ptts) in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model. The Linux tray app is in `linux/` and uses Lemonade’s CPU Kokoro and llama.cpp backends the same way, with Phonon as an optional in-process engine.
 
 ```bash
 ./macos/install-lemonade.sh
@@ -55,6 +55,8 @@ Settings live in `~/.config/dynamite-tts/settings.json`, the log in `~/.local/st
 
 Measured on a 6-core i7-8750H (CPU only): about 1 s to first audio for a short sentence, 2.5–3 s for a paragraph, and synthesis runs about 3x realtime, so playback starts on the first chunk while the rest renders. The optional `llamacpp:vulkan` backend speeds up Summary and Explain on a GPU: `~/.local/share/dynamite-tts/lemonade/lemonade backends install llamacpp:vulkan`.
 
+**Phonon on Linux.** `install.sh` also runs `linux/install-phonon.sh`, which puts Gradium's `ptts` wheel in a private venv under `~/.local/share/dynamite-tts/phonon-venv` and downloads the Phonon 31M English model (65 MB). Pick **Engine → Phonon (in-process)** in Settings: Verbatim mode then needs no Lemonade at all, first audio arrives within tens of milliseconds, and the ~100 catalogue voices are downloaded the first time you pick one. Summary and Explain still use Lemonade's chat model. The prebuilt wheel needs an x86-64-v3 (AVX2) or ARM64 CPU; the venv and model are removed by `uninstall.sh --purge`.
+
 ---
 
 ## Features
@@ -81,6 +83,12 @@ Measured on a 6-core i7-8750H (CPU only): about 1 s to first audio for a short s
 - **Smart Text Sanitization & Chunking:**
   - Cleans markdown links, raw URLs, code backticks, header hashes, and bullet markers for natural reading flow.
   - Automatically splits long articles (>500 characters) across sentence boundaries and streams chunks sequentially with lookahead pre-buffering.
+- **In-Process Local Phonon Engine (Settings → Inference Engine):**
+  - Runs Gradium's [Phonon](https://github.com/gradium-ai/xn-ptts) 31M-parameter model (Apache 2.0) through a small Rust shim (`windows/native/phonon`) on the CPU; no GPU, no server, nothing leaves the machine.
+  - Streams 80 ms frames as it generates them: measured on a Ryzen AI 9 HX 370, the engine loads in 0.06 s, the first audio is ready 20–80 ms after the hotkey, and a paragraph renders about 10x faster than realtime on 3–4 threads. End to end through the audio pipeline the first word is audible about 25 ms after the request.
+  - About 100 catalogue voices in English, French, German, Spanish and Portuguese (downloaded on first use, 250 KB each) plus the model's built-in voice; speed is driven through Phonon's `duration_delta` condition (about 0.67x–1.5x of its natural rate).
+  - The English 31M model is bundled with the installer. For other languages, download a Phonon 40M checkpoint from Hugging Face (gated, CC BY-NC) into a folder and point **Model Folder** at it.
+  - Needs an x86-64-v3 CPU (AVX2: Intel Haswell / AMD Excavator or newer). Kokoro stays the default engine.
 - **In-Process Local Kokoro Engine (default):**
   - Runs Kokoro-82M through ONNX Runtime inside the app; no text leaves the machine.
   - Streams speech sentence by sentence: a short first segment plays within about a second while the rest renders in the background through one gapless audio stream with back-pressure.
@@ -119,6 +127,7 @@ windows/
 │       ├── App.xaml / App.xaml.cs            # App bootstrap, single-instance mutex, shutdown
 │       ├── Native/
 │       │   ├── NativeMethods.cs              # Shell_NotifyIcon, RegisterHotKey, SendInput, Menus
+│       │   ├── PhononNative.cs               # P/Invoke surface of the Phonon shim (windows/native/phonon)
 │       │   ├── TrayIconHost.cs               # HWND_MESSAGE, 3-state icon switching, context menu
 │       │   └── HotkeyService.cs              # Win32 RegisterHotKey (speak + mode-toggle IDs), conflict detection & rebind
 │       ├── Services/
@@ -128,6 +137,7 @@ windows/
 │       │   ├── TextSanitizer.cs              # Markdown & URL cleaner for natural TTS reading
 │       │   ├── SentenceChunker.cs            # Boundary splitting & pipelining for long articles
 │       │   ├── LocalTtsService.cs            # In-process Kokoro via ONNX Runtime: segmentation, streaming, cancellation, CPU + lazily loaded CUDA session
+│       │   ├── PhononTtsService.cs           # In-process Phonon via dynamite_phonon.dll: model/voice download, streaming callback → playback, speed, cancellation
 │       │   ├── CudaRuntimeService.cs         # Downloads/extracts the CUDA 13 DLLs (cudart, cuBLAS, cuDNN, cuFFT, NVRTC) from NVIDIA's PyPI wheels
 │       │   ├── CudaDeviceService.cs          # NVIDIA GPU enumeration via the CUDA driver API; accelerator picker entries
 │       │   ├── LemonadeTtsClient.cs          # HTTP client, endpoint normalizer, model discovery
@@ -145,6 +155,7 @@ windows/
 │       │   ├── ExplainAudience.cs            # General | Technical
 │       │   ├── TrayIconState.cs
 │       │   ├── TtsModelInfo.cs
+│       │   ├── PhononVoice.cs                # Phonon voice catalogue (embedded voices.jsonl snapshot)
 │       │   └── VoicePreset.cs
 │       ├── UI/
 │       │   ├── SettingsWindow.xaml(+.cs)     # Dark/Light adaptive Settings window
@@ -155,6 +166,8 @@ windows/
 │           ├── app_idle.ico                  # Ready tray icon
 │           ├── app_active.ico                # Synthesizing tray icon
 │           └── app_speaking.ico              # Speaking tray icon
+├── native/
+│   └── phonon/                              # Rust cdylib over the `ptts` crate: dynamite_phonon.dll (cargo build --release)
 └── tests/
     └── DynamiteTts.Tests/                   # xUnit unit test suite
 macos/
@@ -164,8 +177,9 @@ linux/
 ├── install.sh / install-lemonade.sh / uninstall.sh
 ├── dynamite_tts/
 │   ├── app.py                               # AppIndicator tray, menu, phases, control-socket commands
-│   ├── speech.py                            # Speech lifecycle: cleanup → chat (Summary/Explain) → streamed Kokoro
+│   ├── speech.py                            # Speech lifecycle: cleanup → chat (Summary/Explain) → streamed Kokoro or Phonon
 │   ├── lemonade.py                          # Lemonade HTTP client: health, load/pull, chat, PCM stream; starts lemond
+│   ├── phonon.py                            # In-process Phonon through the `ptts` wheel in ~/.local/share/dynamite-tts/phonon-venv
 │   ├── playback.py                          # PCM piped to pw-play / paplay / aplay from a writer thread; chime; levels
 │   ├── selection.py                         # PRIMARY selection via wl-paste / xclip / xsel / GTK (clipboard fallback)
 │   ├── hotkeys.py                           # GNOME custom keybindings → `dynamite-tts speak` / `toggle-mode`
@@ -183,6 +197,7 @@ linux/
 
 - Windows 10 (1809+) or Windows 11 (x64)
 - [.NET 9.0 SDK](https://dotnet.microsoft.com/) (for building from source only)
+- [Rust](https://rustup.rs) (for building from source only, for the Phonon engine; without it the app builds and runs with Kokoro alone)
 - Optional: local [Lemonade Server](https://lemonade-server.ai) on `http://localhost:13305` for Summary / Explain modes or Lemonade-server TTS (default in-process Kokoro does not need it)
 
 ---
@@ -194,11 +209,12 @@ linux/
 3. On the optional-components page, **Lemonade Server is checked by default** (needed for Summary / Explain). Uncheck it if you only want Verbatim TTS.
 4. When setup finishes, choose **Launch Dynamite TTS**. The tray icon appears; highlight text and press the speak hotkey (`Ctrl+Shift+S` by default).
 
-The installer is self-contained (no separate .NET runtime). It bundles the Kokoro model and voices so Verbatim speech works immediately. The first time you use **Summary** or **Explain** mode, Dynamite downloads a small default Lemonade chat model (`Qwen2.5-0.5B-Instruct`) if needed. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use.
+The installer is self-contained (no separate .NET runtime). It bundles the Kokoro model and voices, and the Phonon engine with its English model, so Verbatim speech works immediately with either engine. The first time you use **Summary** or **Explain** mode, Dynamite downloads a small default Lemonade chat model (`Qwen2.5-0.5B-Instruct`) if needed. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use.
 
 ### Hardware
 
 - **Verbatim (Kokoro):** any supported Windows x64 PC (CPU; NVIDIA GPU optional).
+- **Verbatim (Phonon):** CPU only; needs AVX2 (x86-64-v3, i.e. roughly 2013 or newer processors).
 - **Summary / Explain (Lemonade):** needs Lemonade Server plus enough RAM for a small local LLM. AMD NPU/GPU is optional and only speeds things up — not required for the default tiny model.
 
 **SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**.
@@ -218,7 +234,7 @@ dotnet run --project windows/src/DynamiteTts/DynamiteTts.csproj
 ```powershell
 ./windows/publish.ps1
 ```
-The self-contained `DynamiteTts.exe` will be generated in `windows/artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (downloaded during publish when missing). `windows/publish.ps1` also writes `windows/artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `windows/artifacts/DynamiteTts-Setup-v<version>.exe`.
+The self-contained `DynamiteTts.exe` will be generated in `windows/artifacts/publish/`, together with the Kokoro `voices` folder and `kokoro.onnx` (downloaded during publish when missing), `dynamite_phonon.dll` (built with `cargo` when it is on the PATH) and `models\phonon-31m-en` (downloaded during publish when missing; keep a copy in the repo root under `models/phonon-31m-en` to skip the download). `windows/publish.ps1` also writes `windows/artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `windows/artifacts/DynamiteTts-Setup-v<version>.exe`.
 
 ---
 

@@ -55,6 +55,23 @@ Observations:
 
 Cancel: Stop during segment 2 returns within that segment; a follow-up request's first audio arrives ≈0.4 s later. Idle unload → reload cycle verified (`Gpu_UnloadsWhenIdle_AndReloadsOnNextUse`): reload costs the same ~3.5 s bridged by the CPU, GPU throughput identical afterwards.
 
+## Phonon (added 2026-11-02)
+
+Gradium's [Phonon](https://github.com/gradium-ai/xn-ptts) (a 31M/40M flow-matching model with the Mimi decoder, Rust runtime `ptts` 0.6.0) was integrated as a second in-process engine through our own `cdylib` shim (`windows/native/phonon`), because the upstream `ptts-ffi` C API has no speaking-rate control; the shim applies `duration_delta` through `Synth::set_conditions` without a reload. No ONNX export is offered upstream, so ONNX Runtime is not involved.
+
+Measured with the shim on the same host (CPU only, `model.q8.gguf`, default voice):
+
+| Threads | Short sentence (3.4 s audio) | Paragraph (17.4 s audio) | First audio |
+|---:|---:|---:|---:|
+| 24 (xn default, all logical cores) | 0.63 s (5.5x) | — | 90 ms |
+| 6 | 0.40 s (8.5x) | 1.86 s (9.3x) | 22–82 ms |
+| 4 (app default) | 0.29–0.53 s (6.5–12x) | 1.5–2.7 s (6–11x) | 15–53 ms |
+| 3 | 0.31–0.43 s (8–11x) | 1.52 s (11.4x) | 17–69 ms |
+
+Engine load: 0.06 s (65 MB q8 weights), so there is no idle-unload logic. End to end through `SpeechOrchestrator` + WASAPI (`EndToEndPlaybackHarnessTests.PhononEngine_*`, 20 s paragraph, Easton voice at 1.15x): first audible 356 ms on a cold engine (including the one-off voice download), 24 ms on a warm one; synthesis finished at 12 s of the 20 s utterance with zero underruns; Stop returns within one frame.
+
+Speaking rate is the one real limitation: `duration_delta` -0.6 → 1.32x, -0.3 → 1.19x, +0.5 → 0.82x (speed ≈ exp(-delta/2)); the app clamps to ±0.8 since the model misreads text beyond that, so the 0.25x–4x slider maps to roughly 0.67x–1.5x on Phonon. Kokoro stays the default engine; Phonon is a setting.
+
 ## Remaining options
 
 1. **NPU**: not viable for Kokoro today (no Vitis AI EP without AMD Ryzen AI Software, and no evidence its op coverage includes Kokoro's graph).

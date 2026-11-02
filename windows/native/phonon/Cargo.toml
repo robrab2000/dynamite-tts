@@ -1,0 +1,23 @@
+[package]
+name = "dynamite_phonon"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "C interface to the Phonon text-to-speech engine for Dynamite TTS: streaming speech with per-call voice, speaking rate and cancellation"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The Phonon runtime (gradium-ai/xn-ptts). `hf` brings the tokenizer every checkpoint ships;
+# `hub` is left out on purpose: the app downloads the files itself, this library never does.
+ptts = { version = "0.6.0", features = ["hf"] }
+# ptts's tensor runtime, for the CPU thread count. Keep the version in step with ptts.
+xn = "0.2.13"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

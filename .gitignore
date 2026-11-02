@@ -19,7 +19,13 @@ artifacts/
 # Large ONNX / voice model downloads (experiment + local caches)
 *.onnx
 *.bin
+*.gguf
+*.safetensors
 windows/experiments/models/
+models/
+
+# Rust build output (Phonon shim)
+windows/native/phonon/target/
 !windows/experiments/**/*.md
 
 # macOS app build
@@ -44,3 +50,5 @@ windows/experiments/bubble-shots/
 # Python
 __pycache__/
 *.pyc
+
+windows/experiments/settings-shots/

@@ -20,6 +20,7 @@ public partial class App : Application
     private LemonadeTtsClient? _ttsClient;
     private LemonadeChatClient? _chatClient;
     private LocalTtsService? _localTtsService;
+    private PhononTtsService? _phononService;
     private CudaDeviceService? _deviceService;
     private LocalEngineState _lastNotifiedEngineState = LocalEngineState.NotInitialized;
     private AudioDeviceService? _audioDeviceService;
@@ -85,6 +86,7 @@ public partial class App : Application
         _ttsClient = new LemonadeTtsClient();
         _chatClient = new LemonadeChatClient();
         _localTtsService = new LocalTtsService();
+        _phononService = new PhononTtsService();
         _deviceService = new CudaDeviceService();
         _localTtsService.StatusChanged += OnLocalEngineStatusChanged;
         _audioDeviceService = new AudioDeviceService();
@@ -102,7 +104,8 @@ public partial class App : Application
             _audioPlaybackService,
             _trayHost,
             _notificationService,
-            _dependencyService);
+            _dependencyService,
+            _phononService);
 
         // Handy-style status pill at the top of the screen while capturing, synthesizing and speaking.
         _statusBubble = new StatusBubbleWindow(() => _audioPlaybackService?.OutputLevel ?? 0f);
@@ -166,7 +169,11 @@ public partial class App : Application
             try
             {
                 _audioPlaybackService.WarmUp(settings.AudioDeviceId);
-                if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+                if (settings.IsPhononEngine)
+                {
+                    await _phononService.InitializeAsync(settings);
+                }
+                else if (settings.IsKokoroEngine)
                 {
                     _localTtsService.GpuIdleTimeout = TimeSpan.FromMinutes(Math.Max(1, settings.GpuIdleUnloadMinutes));
                     await _localTtsService.InitializeAsync(
@@ -284,6 +291,7 @@ public partial class App : Application
             _hotkeyService?.Dispose();
             _orchestrator?.Dispose();
             _localTtsService?.Dispose();
+            _phononService?.Dispose();
             _trayHost?.Dispose();
         }
         catch { }

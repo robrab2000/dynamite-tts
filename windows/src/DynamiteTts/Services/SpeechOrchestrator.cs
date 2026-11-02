@@ -39,6 +39,7 @@ public class SpeechOrchestrator : IDisposable
     private readonly LemonadeChatClient _chatClient;
     private readonly LemonadeDependencyService _dependencyService;
     private readonly LocalTtsService _localTtsService;
+    private readonly PhononTtsService _phononService;
     private readonly AudioPlaybackService _audioService;
     private readonly TrayIconHost _trayHost;
     private readonly TrayNotificationService _notificationService;
@@ -93,7 +94,8 @@ public class SpeechOrchestrator : IDisposable
         AudioPlaybackService audioService,
         TrayIconHost trayHost,
         TrayNotificationService notificationService,
-        LemonadeDependencyService? dependencyService = null)
+        LemonadeDependencyService? dependencyService = null,
+        PhononTtsService? phononService = null)
     {
         _settingsStore = settingsStore;
         _clipboardService = clipboardService;
@@ -104,6 +106,7 @@ public class SpeechOrchestrator : IDisposable
         _trayHost = trayHost;
         _notificationService = notificationService;
         _dependencyService = dependencyService ?? new LemonadeDependencyService(chatClient);
+        _phononService = phononService ?? new PhononTtsService();
     }
 
     private void UpdateState(TrayIconState state)
@@ -536,11 +539,14 @@ public class SpeechOrchestrator : IDisposable
         PipelineRun run,
         CancellationToken ct)
     {
-        if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+        if (settings.IsLocalEngine)
         {
             try
             {
-                await ExecuteLocalStreamingPipelineAsync(chunks, settings, voice, run, ct);
+                if (settings.IsPhononEngine)
+                    await ExecutePhononStreamingPipelineAsync(chunks, settings, run, ct);
+                else
+                    await ExecuteLocalStreamingPipelineAsync(chunks, settings, voice, run, ct);
                 return;
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -600,6 +606,57 @@ public class SpeechOrchestrator : IDisposable
     /// <summary>The in-process Kokoro engine (exposed so the UI can show which device is active).</summary>
     public LocalTtsService LocalEngine => _localTtsService;
 
+    /// <summary>The in-process Phonon engine (exposed so the UI can show its load/download state).</summary>
+    public PhononTtsService PhononEngine => _phononService;
+
+    /// <summary>
+    /// Phonon path: the same gapless stream as the Kokoro path, fed by Phonon's own frame-by-frame
+    /// output. Phonon normalizes and sentence-splits internally and emits audio about every
+    /// second of speech, with the first block within tens of milliseconds.
+    /// </summary>
+    private async Task ExecutePhononStreamingPipelineAsync(
+        IReadOnlyList<string> chunks,
+        AppSettings settings,
+        PipelineRun run,
+        CancellationToken ct)
+    {
+        UpdateState(TrayIconState.Synthesizing);
+
+        using var stream = _audioService.BeginStream(PhononTtsService.SampleRate, settings.AudioDeviceId, ct);
+        stream.PlaybackStarted += () =>
+        {
+            if (ct.IsCancellationRequested || run.PlaybackDoneMs >= 0) return;
+            run.FirstAudioMs = run.Now;
+            UpdateState(TrayIconState.Speaking);
+        };
+
+        if (!_phononService.IsLoaded)
+            RaiseProgress(_phononService.State == PhononEngineState.Downloading ? "Downloading Phonon…" : "Loading Phonon…");
+
+        await _phononService.GenerateSpeechStreamingAsync(
+            chunks,
+            settings.PhononVoice,
+            settings.Speed,
+            settings.PhononModelDir,
+            settings.PhononLanguage,
+            onSegmentAsync: async samples =>
+            {
+                if (run.Segments == 0) run.FirstSegmentMs = run.Now;
+                run.Segments++;
+                run.AudioSeconds += samples.Length / (double)PhononTtsService.SampleRate;
+                await stream.WriteAsync(samples, ct);
+            },
+            ct);
+
+        run.SynthesisDoneMs = run.Now;
+        run.Engine = "phonon";
+        AppLog.Info($"speak: phonon synthesis finished at {run.SynthesisDoneMs:F0} ms; {stream.PlayedSeconds:F1}s of {run.AudioSeconds:F1}s already played");
+
+        await stream.CompleteAsync();
+        run.PlaybackDoneMs = run.Now;
+        run.UnderrunSeconds = stream.UnderrunSamples / (double)PhononTtsService.SampleRate;
+    }
+
     /// <summary>
     /// Local engine path: one gapless playback stream for the whole selection. The engine renders
     /// short segments and writes them into the stream as they finish, so playback of the first
@@ -655,7 +712,23 @@ public class SpeechOrchestrator : IDisposable
         string voice,
         CancellationToken ct)
     {
-        if (string.Equals(settings.EngineMode, "DirectML", StringComparison.OrdinalIgnoreCase))
+        if (settings.IsPhononEngine)
+        {
+            try
+            {
+                return await _phononService.GenerateSpeechWavAsync(
+                    chunk, settings.PhononVoice, settings.Speed, settings.PhononModelDir, settings.PhononLanguage, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // Kokoro is always on disk, so it is a better fallback than a server that may not be running.
+                AppLog.Warn("Phonon WAV synthesis failed; falling back to the local Kokoro engine", ex);
+                return await _localTtsService.GenerateSpeechWavAsync(
+                    chunk, "af_heart", settings.Speed, settings.DirectMlDeviceId, settings.DirectMlModelPrecision, ct);
+            }
+        }
+
+        if (settings.IsKokoroEngine)
         {
             try
             {
@@ -716,6 +789,7 @@ public class SpeechOrchestrator : IDisposable
         _ttsClient.Dispose();
         _chatClient.Dispose();
         _localTtsService.Dispose();
+        _phononService.Dispose();
         _audioService.Dispose();
     }
 }

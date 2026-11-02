@@ -55,8 +55,102 @@ public partial class SettingsWindow : Window
         _orchestrator.StateChanged += OnOrchestratorStateChanged;
         _orchestrator.SpeakModeChanged += OnSpeakModeChanged;
         _orchestrator.LocalEngine.StatusChanged += OnLocalEngineStatusChanged;
+        _orchestrator.PhononEngine.StatusChanged += OnPhononEngineStatusChanged;
 
         Loaded += OnLoaded;
+    }
+
+    /// <summary>Which engine the Voice list currently shows voices for (Kokoro and Phonon have different voices).</summary>
+    private string _voicesEngine = AppSettings.EngineKokoro;
+
+    private void OnPhononEngineStatusChanged(string _)
+    {
+        Dispatcher.BeginInvoke(UpdatePhononEngineStatus);
+    }
+
+    private string SelectedEngineTag =>
+        (EngineComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.EngineKokoro;
+
+    private string SelectedPhononLanguage =>
+        (PhononLanguageComboBox?.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "en";
+
+    /// <summary>Shows what the Phonon engine is doing (missing runtime, download, load, ready, failed).</summary>
+    private void UpdatePhononEngineStatus()
+    {
+        if (PhononStatusTitle == null || PhononStatusDetails == null || PhononStatusDot == null)
+            return;
+
+        var engine = _orchestrator.PhononEngine;
+        string title, details, brush;
+        switch (engine.State)
+        {
+            case PhononEngineState.NotInitialized:
+                title = PhononTtsService.IsRuntimePresent() ? "Phonon engine not loaded yet" : "Phonon runtime missing";
+                details = PhononTtsService.IsRuntimePresent()
+                    ? "Loads on first use (about 0.1 s). Phonon streams 80 ms frames as it generates them: first audio in well under 0.1 s and about 10x realtime on a few CPU cores. Nothing leaves this machine."
+                    : $"{Native.PhononNative.LibraryFileName} is not next to the app. Release builds include it; from source run `cargo build --release` in windows\\native\\phonon.";
+                brush = PhononTtsService.IsRuntimePresent() ? "AccentBrush" : "WarningBrush";
+                break;
+            case PhononEngineState.RuntimeMissing:
+                title = "Phonon runtime missing";
+                details = engine.Description;
+                brush = "WarningBrush";
+                break;
+            case PhononEngineState.Downloading:
+                title = "Downloading the Phonon model…";
+                details = engine.Description + " This happens once; the files are kept in your local app data.";
+                brush = "WarningBrush";
+                break;
+            case PhononEngineState.Loading:
+                title = "Loading Phonon…";
+                details = engine.Description;
+                brush = "WarningBrush";
+                break;
+            case PhononEngineState.Ready:
+                title = $"Phonon ready — {engine.Description}";
+                details = "Speech starts within about 0.1 s and renders about 10x faster than realtime. Catalogue voices (250 KB each) are downloaded the first time you pick them.";
+                brush = "SuccessBrush";
+                break;
+            default:
+                title = "Phonon failed to load";
+                details = engine.Description + " Check the model folder, or clear it to use the bundled model.";
+                brush = "AccentBrush";
+                break;
+        }
+
+        PhononStatusTitle.Text = title;
+        PhononStatusTitle.Foreground = (Brush)FindResource(brush);
+        PhononStatusDot.Fill = (Brush)FindResource(brush);
+        PhononStatusDetails.Text = details;
+    }
+
+    private void OnPhononLanguageChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (string.Equals(_voicesEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase))
+            PopulateVoices();
+    }
+
+    private void OnBrowsePhononModelClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Select a Phonon checkpoint folder (config.json, tokenizer.json, model.q8.gguf)",
+            Multiselect = false
+        };
+        var current = PhononModelDirTextBox.Text.Trim();
+        if (current.Length > 0 && System.IO.Directory.Exists(current))
+            dialog.InitialDirectory = current;
+        if (dialog.ShowDialog(this) == true)
+        {
+            if (!PhononTtsService.IsCheckpoint(dialog.FolderName))
+            {
+                MessageBox.Show(this,
+                    "That folder does not look like a Phonon checkpoint. It needs config.json, tokenizer.json and model.q8.gguf (or model.safetensors).",
+                    "Not a Phonon model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            PhononModelDirTextBox.Text = dialog.FolderName;
+        }
     }
 
     private void OnSpeakModeChanged(SpeakMode mode)
@@ -196,9 +290,19 @@ public partial class SettingsWindow : Window
         RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
         UpdateLocalEngineStatus();
-        await RefreshModelsAsync();
-        await RefreshChatModelsAsync();
-        await CheckConnectionAsync();
+        UpdatePhononEngineStatus();
+        try
+        {
+            await RefreshModelsAsync();
+            await RefreshChatModelsAsync();
+            await CheckConnectionAsync();
+        }
+        catch (Exception ex)
+        {
+            // An async void handler must not let a late failure (e.g. the window closing while the Lemonade
+            // probe is still in flight, or a resource lookup after shutdown) take the whole app down.
+            AppLog.Warn("Settings window background probe failed", ex);
+        }
     }
 
     public void ShowSettings()
@@ -208,6 +312,7 @@ public partial class SettingsWindow : Window
         RefreshDirectMlDevices();
         PopulateFromSettings(_settingsStore.Current);
         UpdateLocalEngineStatus();
+        UpdatePhononEngineStatus();
         Show();
         if (WindowState == WindowState.Minimized)
         {
@@ -222,25 +327,42 @@ public partial class SettingsWindow : Window
         _isExplicitClose = true;
         _orchestrator.StateChanged -= OnOrchestratorStateChanged;
         _orchestrator.LocalEngine.StatusChanged -= OnLocalEngineStatusChanged;
+        _orchestrator.PhononEngine.StatusChanged -= OnPhononEngineStatusChanged;
         Close();
     }
 
     private void PopulateVoices()
     {
-        var currentVoice = VoiceComboBox.Text;
+        var engine = SelectedEngineTag;
+        var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
+        var engineChanged = !string.Equals(_voicesEngine, engine, StringComparison.OrdinalIgnoreCase);
+        _voicesEngine = engine;
+
+        var currentVoice = engineChanged ? string.Empty : VoiceComboBox.Text;
         if (string.IsNullOrEmpty(currentVoice))
         {
-            currentVoice = _settingsStore.Current.Voice;
+            currentVoice = isPhonon ? _settingsStore.Current.PhononVoice : _settingsStore.Current.Voice;
         }
 
         VoiceComboBox.Items.Clear();
-        foreach (var preset in VoicePreset.Presets)
+        if (isPhonon)
         {
-            VoiceComboBox.Items.Add(new ComboBoxItem
+            var language = SelectedPhononLanguage;
+            foreach (var voice in PhononVoice.ForLanguage(language))
+                VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice.DisplayName, Tag = voice.Name });
+            foreach (var voice in PhononVoice.Catalog.Where(v => !v.IsDefault && !string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase)))
+                VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice.DisplayName, Tag = voice.Name });
+        }
+        else
+        {
+            foreach (var preset in VoicePreset.Presets)
             {
-                Content = preset.DisplayName,
-                Tag = preset.Id
-            });
+                VoiceComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = preset.DisplayName,
+                    Tag = preset.Id
+                });
+            }
         }
 
         var matchingItem = VoiceComboBox.Items
@@ -324,12 +446,27 @@ public partial class SettingsWindow : Window
         // Accelerator selection
         SelectAccelerationDevice(settings.DirectMlDeviceId);
 
+        // Phonon
+        foreach (ComboBoxItem item in PhononLanguageComboBox.Items)
+        {
+            if (string.Equals(item.Tag?.ToString(), settings.PhononLanguage, StringComparison.OrdinalIgnoreCase))
+            {
+                PhononLanguageComboBox.SelectedItem = item;
+                break;
+            }
+        }
+        PhononModelDirTextBox.Text = settings.PhononModelDir;
+        PopulateVoices();
+
         EndpointTextBox.Text = settings.SpeechEndpoint;
         ModelComboBox.Text = settings.Model;
         ModelComboBox.SelectedItem = settings.Model;
 
-        VoiceComboBox.Text = settings.Voice;
-        VoiceComboBox.SelectedItem = settings.Voice;
+        var engineVoice = settings.IsPhononEngine ? settings.PhononVoice : settings.Voice;
+        var voiceItem = VoiceComboBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(i => string.Equals(i.Tag?.ToString(), engineVoice, StringComparison.OrdinalIgnoreCase));
+        if (voiceItem != null) VoiceComboBox.SelectedItem = voiceItem;
+        else VoiceComboBox.Text = engineVoice;
 
         SpeedSlider.Value = settings.Speed;
         SpeedValueTextBlock.Text = $"{settings.Speed:F2}x";
@@ -361,6 +498,9 @@ public partial class SettingsWindow : Window
         {
             var isDirectMl = string.Equals(selectedItem.Tag?.ToString(), "DirectML", StringComparison.OrdinalIgnoreCase);
             UpdateEnginePanelsVisibility(isDirectMl);
+            // The voice list belongs to the engine. VoiceComboBox is null while InitializeComponent is still
+            // building the tree (the first item's IsSelected fires this handler early).
+            if (VoiceComboBox != null) PopulateVoices();
         }
     }
 
@@ -414,17 +554,24 @@ public partial class SettingsWindow : Window
 
     private void UpdateEnginePanelsVisibility(bool isDirectMl)
     {
+        var engine = SelectedEngineTag;
+        var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
+        var isServer = !isDirectMl && !isPhonon;
         if (DirectMlInfoPanel != null)
         {
             DirectMlInfoPanel.Visibility = isDirectMl ? Visibility.Visible : Visibility.Collapsed;
         }
+        if (PhononInfoPanel != null)
+        {
+            PhononInfoPanel.Visibility = isPhonon ? Visibility.Visible : Visibility.Collapsed;
+        }
         if (LemonadeServerPanel != null)
         {
-            LemonadeServerPanel.Visibility = isDirectMl ? Visibility.Collapsed : Visibility.Visible;
+            LemonadeServerPanel.Visibility = isServer ? Visibility.Visible : Visibility.Collapsed;
         }
         if (ModelSelectionContainer != null)
         {
-            ModelSelectionContainer.Visibility = isDirectMl ? Visibility.Collapsed : Visibility.Visible;
+            ModelSelectionContainer.Visibility = isServer ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -438,15 +585,20 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(model))
             model = _settingsStore.Current.Model;
 
+        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
+        var isPhonon = string.Equals(selectedEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
+
         var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
-        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
+        var uiVoice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
+        var voice = isPhonon ? _settingsStore.Current.Voice : uiVoice;
+        var phononVoice = isPhonon ? uiVoice : _settingsStore.Current.PhononVoice;
         if (string.IsNullOrWhiteSpace(voice))
             voice = _settingsStore.Current.Voice;
+        if (string.IsNullOrWhiteSpace(phononVoice))
+            phononVoice = PhononVoice.DefaultId;
 
         var selectedDevice = AudioDeviceComboBox.SelectedItem as AudioDeviceInfo;
         var audioDeviceId = selectedDevice?.Id ?? _settingsStore.Current.AudioDeviceId;
-
-        var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "DirectML";
 
         var selectedDmlDevice = DirectMlDeviceComboBox.SelectedItem as AccelerationDeviceInfo;
         var dmlDeviceId = selectedDmlDevice?.DeviceId ?? _settingsStore.Current.DirectMlDeviceId;
@@ -480,7 +632,10 @@ public partial class SettingsWindow : Window
             UseDirectMlAcceleration = true,
             DirectMlDeviceId = dmlDeviceId,
             DirectMlModelPrecision = precision,
-            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes
+            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes,
+            PhononVoice = phononVoice,
+            PhononModelDir = PhononModelDirTextBox.Text.Trim(),
+            PhononLanguage = SelectedPhononLanguage
         };
     }
 
@@ -646,15 +801,20 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
-        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(voice))
-            voice = "af_heart";
-
         var settings = GetCurrentSettingsFromUi();
-        settings.Voice = voice;
+        string spokenName;
+        if (settings.IsPhononEngine)
+        {
+            var phononVoice = PhononVoice.Find(settings.PhononVoice);
+            spokenName = phononVoice == null || phononVoice.IsDefault ? "default Phonon" : phononVoice.Name;
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(settings.Voice)) settings.Voice = "af_heart";
+            spokenName = settings.Voice;
+        }
 
-        await _orchestrator.SpeakTextAsync($"Hello! This is a preview of the {voice} voice with DirectML hardware acceleration.", settings);
+        await _orchestrator.SpeakTextAsync($"Hello! This is a preview of the {spokenName} voice.", settings);
     }
 
     private async void OnTestSpeechClick(object sender, RoutedEventArgs e)
@@ -704,11 +864,26 @@ public partial class SettingsWindow : Window
             model = "kokoro-v1";
         }
 
+        var isPhonon = string.Equals(selectedEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
         var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
-        var voice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
+        var uiVoice = selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
+        var voice = isPhonon ? _settingsStore.Current.Voice : uiVoice;
+        var phononVoice = isPhonon ? uiVoice : _settingsStore.Current.PhononVoice;
         if (string.IsNullOrWhiteSpace(voice))
         {
             voice = "af_heart";
+        }
+        if (string.IsNullOrWhiteSpace(phononVoice))
+        {
+            phononVoice = PhononVoice.DefaultId;
+        }
+
+        var phononModelDir = PhononModelDirTextBox.Text.Trim();
+        if (isPhonon && phononModelDir.Length > 0 && !PhononTtsService.IsCheckpoint(phononModelDir))
+        {
+            MessageBox.Show(this, "The Phonon model folder needs config.json, tokenizer.json and model.q8.gguf (or model.safetensors). Clear it to use the bundled model.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            PhononModelDirTextBox.Focus();
+            return;
         }
 
         var newHotkey = HotkeyCaptureControl.Hotkey ?? HotkeyConfig.Default;
@@ -759,10 +934,20 @@ public partial class SettingsWindow : Window
             UseDirectMlAcceleration = true,
             DirectMlDeviceId = dmlDeviceId,
             DirectMlModelPrecision = precision,
-            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes
+            GpuIdleUnloadMinutes = _settingsStore.Current.GpuIdleUnloadMinutes,
+            PhononVoice = phononVoice,
+            PhononModelDir = phononModelDir,
+            PhononLanguage = SelectedPhononLanguage
         };
 
         _settingsStore.Save(newSettings);
+        if (newSettings.IsPhononEngine)
+        {
+            // Start the (first-time) download and load now rather than on the first hotkey press.
+            _ = _orchestrator.PhononEngine.InitializeAsync(newSettings).ContinueWith(
+                t => AppLog.Warn("Phonon load after save failed", t.Exception?.GetBaseException()),
+                TaskContinuationOptions.OnlyOnFaulted);
+        }
         Hide();
     }
 
