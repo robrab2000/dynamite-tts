@@ -87,7 +87,61 @@ Shim alone (`macos/Spike/phonon_bench.py`, Accelerate build, default voice):
 
 Through the app's Swift engine (`swift test` in `macos/DynamiteTTS`, `PhononEngineTests`, no audio device): load 85 ms including a one-word priming utterance, first audio 10–24 ms, short sentence 113–128 ms (29–33x), paragraph 676 ms (32.4x). The Easton catalogue voice took 23 ms to first audio and ran at 30x. Stopping right after the first block returned in 8 ms with 0.08 s of audio, and the engine spoke normally again afterwards. For comparison, Lemonade's Metal Kokoro on the same Mac takes 450–890 ms to first PCM at 4–7.5x (`macos/Spike/RESULTS.md`).
 
+Phonon against the previous Mac engine (`macos/Spike/engine_bench.py`, 2026-11-02, 64 GB M1 Max). Kokoro numbers cover `lemond` plus its `koko` backend, with Lemonade's chat model excluded. Phonon numbers cover a process that holds only the shim, minus its 15 MB Python baseline. Memory is the physical footprint, which is what Activity Monitor shows. CPU is CPU-seconds divided by wall time, so "4 cores" means four cores fully busy for that moment.
+
+| | Kokoro (Lemonade "Metal") | Phonon (in-process, 6 threads) |
+|---|---:|---:|
+| Memory, loaded and idle | 2.39 GB (`koko` 2.3 GB, `lemond` 13 MB) | 0.22 GB |
+| Memory, peak while speaking the paragraph | 3.1 GB | 0.33 GB |
+| Memory, after 10 utterances | 2.52 GB | 0.33 GB |
+| CPU while idle and loaded | 0.04% of one core | 0.1% of one core |
+| CPU, short sentence | 3.4 CPU-s (3.6 cores for 0.94 s) | 0.55 CPU-s (4.0 cores for 0.14 s) |
+| CPU, paragraph | 22.3 CPU-s (6.6 cores for 3.4 s) | 3.1 CPU-s (4.2 cores for 0.73 s) |
+| GPU | 0%; despite the backend's name it runs on the CPU (`"device": "cpu"` in `/api/v1/health`) | 0% |
+| Time to first audio, cold (model not loaded) | 2.42 s | 78 ms, including dlopen and the 52 ms load |
+| Time to first audio, warm, short sentence | 938 ms (932–963) | 11 ms (10–31) |
+| Time to first audio, warm, paragraph | 1.38 s | 11 ms |
+| Speed, paragraph | 7.8x realtime | 30x realtime |
+
+Kokoro returns its first audio only after it has synthesized the whole first sentence, so its first-audio time grows with sentence length. Phonon hands over each block of audio (about 0.3–0.4 s) as soon as it is decoded. Per second of speech, Phonon used about 0.14 CPU-s against Kokoro's 0.84.
+
 Upstream also offers a Core ML route (`PhononCore.xcframework` + `phonon-31m-en-coreml.zip`). Its exporter sums the checkpoint's conditions into one fixed vector (`flow_lm.conditions` in `host.safetensors`), so speaking rate can't change at runtime, and its Mimi decoder runs on the CPU anyway. The CPU shim is already about 30x realtime, so the Mac app uses it and keeps the speed slider.
+
+### Phonon against Lemonade CPU Kokoro on Linux (i7-8750H, 6 cores/12 threads, 30 GB, Ubuntu 26.04, 2026-11-02)
+
+This used a harness that calls the app's `PhononStream`, `LemonadeClient` and `PCMStream` the way `speech.py` does, without GTK or playback. Each engine was run twice, in both orders, and the two passes agreed within about 10%. Memory is PSS for the whole process tree (Kokoro is `lemond` plus `koko` plus the client). Phonon used 3 threads. Kokoro used `af_heart`; no chat model was loaded.
+
+| | Kokoro (Lemonade CPU) | Phonon (`ptts` wheel, in-process) |
+|---|---:|---:|
+| Memory, after load | 1.89 GB | 0.14 GB |
+| Memory, peak while speaking | 2.7–3.2 GB | 0.35–0.37 GB |
+| Memory, idle after the runs | 2.4–2.9 GB (not returned) | 0.29–0.30 GB |
+| CPU while idle and loaded | 0.1–0.3% of one core | 0% |
+| CPU, short sentence | 5.8–6.3 CPU-s (about 4 cores) | 1.3 CPU-s (3.3 cores) |
+| CPU, paragraph | 48–49 CPU-s (6.6 cores, peaks of about 10) | 7.4 CPU-s (3.3 cores) |
+| CPU-s per second of speech | 1.3–1.85 | 0.34 |
+| Time to first audio, cold (engine not loaded) | 4.9 s (5.4 s with Lemonade not running) | 0.50 s |
+| Time to first audio, warm, short / paragraph | 1.4–1.6 s / 3.1 s | 26 ms / 29 ms |
+| Speed, paragraph | 3.6x realtime | 10x realtime |
+
+Phonon's first utterance after loading took 0.22 s to first audio, and the cold figure includes it. The short sentence briefly peaked at about 7.6 cores despite the 3-thread setting.
+
+### Phonon against in-process Kokoro on Windows (rob_aero, 24 logical CPUs with an NVIDIA GPU, 2026-11-02)
+
+This used a harness over the app's `LocalTtsService` and `PhononTtsService`, run 3 times with each engine in a fresh process. "Kokoro auto" is the app default: it starts on the CPU, loads CUDA in the background after the first utterance, and then runs on the GPU. Memory is private bytes.
+
+| | Kokoro, CPU | Kokoro, auto (CUDA) | Phonon |
+|---|---:|---:|---:|
+| Memory, after load | 642 MB | 655 MB | 142 MB |
+| Memory, loaded and idle after the runs | 985 MB | 4.47 GB committed, including 2.0 GB of GPU memory | 237 MB |
+| Memory, peak while speaking | 986 MB | 4.47 GB | 346 MB |
+| CPU while idle | ~0% | ~0% | ~0% |
+| CPU, short sentence | 12.2 CPU-s (12 cores, 50% of the machine) | 0.45 CPU-s (1 core) | 1.6 CPU-s (3.4 cores, 14%) |
+| CPU, paragraph | 66 CPU-s (12 cores) | 2.5 CPU-s (1 core), GPU up to 68% | 9.0 CPU-s (3.4 cores) |
+| Load | 2.45 s, 7.1 CPU-s | 2.5 s, then 3.2 s of background CUDA load | 0.21 s, 0.64 CPU-s |
+| Time to first audio, cold | 2.97 s | 2.99 s | 0.27 s |
+| Time to first audio, warm, short / paragraph | 444 / 507 ms | 195 / 199 ms | 26 / 29 ms |
+| Speed, paragraph | 4.2x realtime | 9.4x realtime | 8.3x realtime |
 
 ## Remaining options
 
