@@ -16,6 +16,13 @@ ptts = { version = "0.6.0", features = ["hf"] }
 # ptts's tensor runtime, for the CPU thread count. Keep the version in step with ptts.
 xn = "0.2.13"
 
+# On Apple Silicon xn can hand its f32 matrix products to the Accelerate framework (AMX-backed
+# BLAS). Measured on an M1 Max: 29-35x realtime against 25x with the plain NEON kernels, and the
+# decoder hands out smaller blocks, so the Mac app streams finer. `kai` (KleidiAI SME2 kernels)
+# is left out: it needs a Cargo.lock change and only an M4 or newer could use it.
+[target.'cfg(all(target_arch = "aarch64", target_vendor = "apple"))'.dependencies]
+ptts = { version = "0.6.0", features = ["hf", "accelerate"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

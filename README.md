@@ -1,6 +1,6 @@
 # Dynamite TTS — Highlight-to-Speech for Windows, macOS, and Linux
 
-A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro or [Phonon](https://github.com/gradium-ai/xn-ptts) in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro, summarizing with Lemonade’s Metal chat model. The Linux tray app is in `linux/` and uses Lemonade’s CPU Kokoro and llama.cpp backends the same way, with Phonon as an optional in-process engine.
+A fast, lightweight, and 100% private highlight-to-speech utility. The Windows tray app is in `windows/` and runs Kokoro or [Phonon](https://github.com/gradium-ai/xn-ptts) in-process. The Apple Silicon menu-bar app is in `macos/` and speaks through Lemonade’s Metal Kokoro or in-process Phonon, summarizing with Lemonade’s Metal chat model. The Linux tray app is in `linux/` and uses Lemonade’s CPU Kokoro and llama.cpp backends the same way, with Phonon as an optional in-process engine.
 
 ```bash
 ./macos/install-lemonade.sh
@@ -22,6 +22,8 @@ bash DynamiteTTS-install.command
 ```
 
 The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade, the speech models, and the menu-bar app. It needs Apple Silicon and macOS 15 or later. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
+
+**Phonon on the Mac.** `package-app.sh` builds the Phonon shim (`windows/native/phonon`, with the pinned `Cargo.lock`) when Rust is installed. It copies the shim into the app with the Phonon 31M English model (65 MB, downloaded once into `~/Library/Application Support/DynamiteTTS/models` and SHA-256 checked). `make-installer.sh` ships a prebuilt shim, so the other Mac does not need Rust. In Settings, pick **Engine → Phonon (in-process)**. Verbatim mode then needs no Lemonade at all. On an M1 Max the model loads in under 0.1 s, the first audio arrives in about 10–25 ms, and speech renders at about 30x realtime on the CPU. The ~100 catalogue voices download the first time you pick one. Language (en, fr, de, es, pt or none) and a custom model folder for the gated 40M checkpoints are in the same section. Summary and Explain still use Lemonade's chat model. Without Rust and without a prebuilt shim, the app builds as before with Kokoro alone.
 
 ## Linux
 
@@ -171,7 +173,9 @@ windows/
 └── tests/
     └── DynamiteTts.Tests/                   # xUnit unit test suite
 macos/
-└── DynamiteTTS/                             # Apple Silicon menu-bar app
+├── DynamiteTTS/                             # Apple Silicon menu-bar app (Sources/DynamiteTTS/PhononEngine.swift: in-process Phonon)
+├── install-phonon-model.sh                  # Pinned, hash-checked Phonon model download (package-app.sh runs it)
+└── Spike/phonon_bench.py                    # Measures the Phonon shim: load, first audio, realtime, cancel, voices
 linux/
 ├── dynamite-tts                             # Launcher (python3 -m dynamite_tts)
 ├── install.sh / install-lemonade.sh / uninstall.sh

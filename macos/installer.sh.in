@@ -111,6 +111,7 @@ echo "Downloading the Kokoro voice and the chat model. This can take a few minut
 
 echo
 echo "== Build =="
+echo "This also fetches the Phonon voice model (65 MB) the first time."
 "${workdir}/macos/package-app.sh"
 
 destination="${HOME}/Applications"

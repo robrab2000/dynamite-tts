@@ -5,7 +5,12 @@ import ServiceManagement
 final class SettingsWindowController: NSWindowController {
     private let store: SettingsStore
     private let onChange: () -> Void
+    private var enginePopup: NSPopUpButton!
     private var voicePopup: NSPopUpButton!
+    private var phononVoicePopup: NSPopUpButton!
+    private var phononLanguagePopup: NSPopUpButton!
+    private var phononModelField: NSTextField!
+    private var phononStatus: NSTextField!
     private var speedSlider: NSSlider!
     private var speedLabel: NSTextField!
     private var devicePopup: NSPopUpButton!
@@ -83,6 +88,12 @@ final class SettingsWindowController: NSWindowController {
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16),
         ])
 
+        enginePopup = NSPopUpButton()
+        enginePopup.addItems(withTitles: SpeechEngine.allCases.map(\.title))
+        enginePopup.target = self
+        enginePopup.action = #selector(engineChanged)
+        stack.addArrangedSubview(labeled("Engine", enginePopup))
+
         voicePopup = NSPopUpButton()
         voicePopup.target = self
         voicePopup.action = #selector(save)
@@ -95,7 +106,49 @@ final class SettingsWindowController: NSWindowController {
         voiceRow.orientation = .horizontal
         voiceRow.alignment = .centerY
         voiceRow.spacing = 8
-        stack.addArrangedSubview(labeled("Voice", voiceRow))
+        stack.addArrangedSubview(labeled("Kokoro voice", voiceRow))
+
+        phononVoicePopup = NSPopUpButton()
+        phononVoicePopup.target = self
+        phononVoicePopup.action = #selector(save)
+        let phononPreview = NSButton(title: "Preview", target: self, action: #selector(previewPhononVoice))
+        phononPreview.bezelStyle = .rounded
+        phononPreview.setContentCompressionResistancePriority(.required, for: .horizontal)
+        phononVoicePopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        phononVoicePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let phononVoiceRow = NSStackView(views: [phononVoicePopup, phononPreview])
+        phononVoiceRow.orientation = .horizontal
+        phononVoiceRow.alignment = .centerY
+        phononVoiceRow.spacing = 8
+        stack.addArrangedSubview(labeled("Phonon voice", phononVoiceRow))
+
+        phononLanguagePopup = NSPopUpButton()
+        for option in PhononLanguages.options {
+            phononLanguagePopup.addItem(withTitle: option.name)
+            phononLanguagePopup.lastItem?.representedObject = option.id
+        }
+        phononLanguagePopup.target = self
+        phononLanguagePopup.action = #selector(save)
+        stack.addArrangedSubview(labeled("Phonon language", phononLanguagePopup))
+
+        phononModelField = NSTextField()
+        phononModelField.placeholderString = "Bundled phonon-31m-en (leave empty)"
+        phononModelField.translatesAutoresizingMaskIntoConstraints = false
+        phononModelField.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        phononModelField.target = self
+        phononModelField.action = #selector(save)
+        let chooseModel = NSButton(title: "Choose…", target: self, action: #selector(choosePhononModel))
+        chooseModel.bezelStyle = .rounded
+        let modelRow = NSStackView(views: [phononModelField, chooseModel])
+        modelRow.orientation = .horizontal
+        modelRow.alignment = .centerY
+        modelRow.spacing = 8
+        stack.addArrangedSubview(labeled("Phonon model folder", modelRow))
+
+        phononStatus = NSTextField(wrappingLabelWithString: "")
+        phononStatus.textColor = .secondaryLabelColor
+        phononStatus.preferredMaxLayoutWidth = 360
+        stack.addArrangedSubview(phononStatus)
 
         speedSlider = NSSlider(value: 1, minValue: 0.25, maxValue: 4, target: self, action: #selector(speedMoved))
         speedSlider.translatesAutoresizingMaskIntoConstraints = false
@@ -156,7 +209,7 @@ final class SettingsWindowController: NSWindowController {
         let access = NSButton(title: "Grant Accessibility…", target: self, action: #selector(grantAccess))
         access.bezelStyle = .rounded
         stack.addArrangedSubview(access)
-        let note = NSTextField(wrappingLabelWithString: "Accessibility lets the hotkey read a highlight. Without it, Dynamite falls back to copying the selection. The chat model is a small Metal Llama build. The Windows default Qwen is a Ryzen NPU model and does not run here.")
+        let note = NSTextField(wrappingLabelWithString: "Accessibility lets the hotkey read a highlight. Without it, Dynamite falls back to copying the selection. The chat model is a small Metal Llama build. The Windows default Qwen is a Ryzen NPU model and does not run here. Phonon runs in-process on the CPU: Verbatim then needs no Lemonade, catalogue voices download on first use (250 KB each), and speed covers about 0.67x–1.5x. For other languages point the model folder at a Phonon 40M checkpoint from Hugging Face.")
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 360
         note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -166,6 +219,21 @@ final class SettingsWindowController: NSWindowController {
 
     private func reload() {
         let settings = store.current
+        enginePopup.selectItem(at: SpeechEngine.allCases.firstIndex(of: settings.engine) ?? 0)
+        phononVoicePopup.removeAllItems()
+        for voice in PhononVoiceCatalog.voices {
+            phononVoicePopup.addItem(withTitle: voice.menuTitle)
+            phononVoicePopup.lastItem?.representedObject = voice.voiceId
+        }
+        if let voice = PhononVoiceCatalog.find(settings.phononVoice),
+           let index = PhononVoiceCatalog.voices.firstIndex(of: voice) {
+            phononVoicePopup.selectItem(at: index)
+        }
+        if let index = PhononLanguages.options.firstIndex(where: { $0.id == PhononEngine.normalizeLanguage(settings.phononLanguage) }) {
+            phononLanguagePopup.selectItem(at: index)
+        }
+        phononModelField.stringValue = settings.phononModelDir
+        refreshPhononStatus()
         voicePopup.removeAllItems()
         for voice in VoiceCatalog.voices {
             voicePopup.addItem(withTitle: voice.name)
@@ -198,6 +266,50 @@ final class SettingsWindowController: NSWindowController {
         audiencePopup.selectItem(at: ExplainAudience.allCases.firstIndex(of: settings.explainAudience) ?? 0)
         chatField.stringValue = settings.chatModel
         baseField.stringValue = settings.baseURL
+    }
+
+    private func refreshPhononStatus() {
+        guard let engine = AppDelegate.shared?.speech.phonon else { return }
+        let text: String
+        switch engine.state {
+        case .notInitialized:
+            text = PhononEngine.isRuntimePresent
+                ? "Phonon loads the first time it speaks (\(PhononEngine.defaultThreads) CPU threads)."
+                : "Phonon runtime missing: build it with cargo in windows/native/phonon, then run macos/package-app.sh."
+        default:
+            text = "Phonon: \(engine.stateDescription)"
+        }
+        phononStatus.stringValue = text
+    }
+
+    @objc private func engineChanged() {
+        persist()
+        refreshPhononStatus()
+    }
+
+    @objc private func choosePhononModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a Phonon checkpoint folder (config.json, tokenizer.json, model.q8.gguf or model.safetensors)."
+        panel.beginSheetModal(for: window!) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.phononModelField.stringValue = url.path
+            self.persist()
+        }
+    }
+
+    @objc private func previewPhononVoice() {
+        persist()
+        let voice = phononVoicePopup.selectedItem.flatMap { $0.representedObject as? String }
+            .flatMap { PhononVoiceCatalog.find($0) }
+        let name = voice?.isDefault == false ? voice!.name : "default"
+        AppDelegate.shared?.speech.speak(
+            text: "Hello. This is a preview of the \(name) voice, spoken by Phonon.",
+            mode: .verbatim,
+            engine: .phonon
+        )
     }
 
     @objc private func speedMoved() {
@@ -233,7 +345,8 @@ final class SettingsWindowController: NSWindowController {
         let voice = voicePopup.titleOfSelectedItem ?? store.current.voice
         AppDelegate.shared?.speech.speak(
             text: "Hello. This is a preview of the \(voice) voice.",
-            mode: .verbatim
+            mode: .verbatim,
+            engine: .kokoro
         )
     }
 
@@ -247,6 +360,12 @@ final class SettingsWindowController: NSWindowController {
             if let id = voicePopup.selectedItem?.representedObject as? String {
                 settings.voice = id
             }
+            settings.engine = SpeechEngine.allCases[max(0, enginePopup.indexOfSelectedItem)]
+            if let id = phononVoicePopup.selectedItem?.representedObject as? String {
+                settings.phononVoice = PhononVoiceCatalog.find(id).map { $0.isDefault ? PhononVoice.defaultId : $0.name } ?? PhononVoice.defaultId
+            }
+            settings.phononLanguage = phononLanguagePopup.selectedItem?.representedObject as? String ?? "en"
+            settings.phononModelDir = phononModelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             settings.speed = speedSlider.doubleValue
             settings.audioDeviceUID = devicePopup.selectedItem?.representedObject as? String ?? ""
             settings.showStatusPanel = panelCheck.state == .on

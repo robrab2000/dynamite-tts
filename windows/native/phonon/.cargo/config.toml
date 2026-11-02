@@ -4,3 +4,6 @@
 # its AVX kernels.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-cpu=x86-64-v3"]
+
+# Apple Silicon needs no counterpart: every M-series CPU has the same NEON baseline the arm64
+# target already assumes, and `-C target-cpu=apple-m1` measured within noise of it on an M1 Max.

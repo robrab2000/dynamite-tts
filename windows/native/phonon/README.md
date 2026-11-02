@@ -14,6 +14,8 @@ cargo build --release
 
 That writes `target\release\dynamite_phonon.dll` (about 7.5 MB). The app project picks it up from there when it exists (`DynamiteTts.csproj`), `publish.ps1` builds it when `cargo` is on the PATH, and the release workflow builds it on every tag. Without the DLL the app still builds and runs; the Phonon engine then reports "runtime missing" in Settings and the Kokoro engine remains available.
 
+On an Apple Silicon Mac the same command writes `target/release/libdynamite_phonon.dylib`, which `macos/package-app.sh` builds and copies into `DynamiteTTS.app/Contents/Frameworks`. The macOS app binds it from Swift (`macos/DynamiteTTS/Sources/DynamiteTTS/PhononEngine.swift`) using this header's types through a module map. On Apple arm64, `Cargo.toml` enables ptts's `accelerate` feature, about 30% faster on an M1 Max; measurements are in `windows/experiments/FINDINGS-tts-backends.md`.
+
 `.cargo/config.toml` targets x86-64-v3 (AVX2, FMA, F16C), the same baseline as Gradium's own Windows binaries. The DLL will not run on CPUs older than roughly 2013 (Haswell / Excavator); drop the flag to build for an older machine, at the cost of the q8 kernels' AVX paths.
 
 ## Model files

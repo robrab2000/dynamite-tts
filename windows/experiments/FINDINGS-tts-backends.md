@@ -72,6 +72,23 @@ Engine load: 0.06 s (65 MB q8 weights), so there is no idle-unload logic. End to
 
 Speaking rate is the one real limitation: `duration_delta` -0.6 → 1.32x, -0.3 → 1.19x, +0.5 → 0.82x (speed ≈ exp(-delta/2)); the app clamps to ±0.8 since the model misreads text beyond that, so the 0.25x–4x slider maps to roughly 0.67x–1.5x on Phonon. Kokoro stays the default engine; Phonon is a setting.
 
+### Phonon on the Mac (Apple M1 Max, 8P+2E cores, macOS 27.0.1)
+
+The same shim builds for arm64 (`libdynamite_phonon.dylib`, 5.5 MB) and the menu-bar app loads it with `dlopen`. On Apple Silicon the crate turns on xn's `accelerate` feature, which hands the f32 matrix products to Accelerate (AMX). With 4 threads and the plain NEON kernels it runs at 25x realtime; Accelerate raises that to 29–33x and splits the output into blocks about half the size. `-C target-cpu=apple-m1` measured within noise of the default arm64 baseline, so there is no Mac counterpart to the x86-64-v3 flag. `kai` (KleidiAI SME2) is left off because only an M4 or newer has SME2.
+
+Shim alone (`macos/Spike/phonon_bench.py`, Accelerate build, default voice):
+
+| Threads | Short sentence (3.76 s audio) | Paragraph (21.9 s audio) | First audio |
+|---:|---:|---:|---:|
+| 2 (NEON only) | 0.22 s (17x) | 1.25 s (17.5x) | 11 ms |
+| 4 | 0.12–0.13 s (29–32x) | 0.67 s (32.8x) | 9–11 ms |
+| 6 (app default: performance cores, at most six) | 0.11 s (33.5–34x) | 0.62–0.67 s (32.6–35x) | 9–11 ms |
+| 10 (all cores, NEON only) | — | — | about 14x overall; the efficiency cores slow it down |
+
+Through the app's Swift engine (`swift test` in `macos/DynamiteTTS`, `PhononEngineTests`, no audio device): load 85 ms including a one-word priming utterance, first audio 10–24 ms, short sentence 113–128 ms (29–33x), paragraph 676 ms (32.4x). The Easton catalogue voice took 23 ms to first audio and ran at 30x. Stopping right after the first block returned in 8 ms with 0.08 s of audio, and the engine spoke normally again afterwards. For comparison, Lemonade's Metal Kokoro on the same Mac takes 450–890 ms to first PCM at 4–7.5x (`macos/Spike/RESULTS.md`).
+
+Upstream also offers a Core ML route (`PhononCore.xcframework` + `phonon-31m-en-coreml.zip`). Its exporter sums the checkpoint's conditions into one fixed vector (`flow_lm.conditions` in `host.safetensors`), so speaking rate can't change at runtime, and its Mimi decoder runs on the CPU anyway. The CPU shim is already about 30x realtime, so the Mac app uses it and keeps the speed slider.
+
 ## Remaining options
 
 1. **NPU**: not viable for Kokoro today (no Vitis AI EP without AMD Ryzen AI Software, and no evidence its op coverage includes Kokoro's graph).

@@ -33,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let text = LaunchArguments.speakText {
             speech.speak(text: text)
+            if let seconds = LaunchArguments.stopAfterSeconds {
+                DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                    AppLog.write("stop-after \(seconds)s: stopping")
+                    self?.speech.stop(playChime: true)
+                }
+            }
         }
         if !SelectionReader.isTrusted(prompt: true) {
             SelectionReader.openAccessibilitySettings()
@@ -144,9 +150,18 @@ enum StatusIcon {
 }
 
 enum LaunchArguments {
-    static let speakText: String? = {
+    static let speakText: String? = value(after: "--speak")
+
+    /// `--engine kokoro|phonon` overrides the saved engine for this launch without changing the
+    /// settings file (used by the measurements in macos/Spike and handy for a quick comparison).
+    static let engineOverride: SpeechEngine? = value(after: "--engine").flatMap { SpeechEngine(rawValue: $0.lowercased()) }
+
+    /// `--stop-after <seconds>` with `--speak`: presses Stop that long after launch (cancellation test).
+    static let stopAfterSeconds: Double? = value(after: "--stop-after").flatMap(Double.init)
+
+    private static func value(after flag: String) -> String? {
         let args = CommandLine.arguments
-        guard let index = args.firstIndex(of: "--speak"), index + 1 < args.count else { return nil }
+        guard let index = args.firstIndex(of: flag), index + 1 < args.count else { return nil }
         return args[index + 1]
-    }()
+    }
 }
