@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install Dynamite TTS for the current user on Linux (GNOME on Wayland or X11; other desktops with manual shortcuts).
 #
-#   ./linux/install.sh            install system packages (sudo), Lemonade, models, and the app
+#   ./linux/install.sh            install system packages (sudo), Lemonade, Phonon, the chat model, and the app
 #   ./linux/install.sh --no-apt   skip the apt step (you installed the packages yourself)
 #
 # Everything lands under ~/.local, so no root is needed beyond the apt packages.
@@ -26,7 +26,7 @@ echo "Dynamite TTS setup (Linux)"
 echo
 
 echo "== System packages =="
-APT_PACKAGES=(python3 python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7 gir1.2-ayatanaappindicator3-0.1 wl-clipboard pipewire-bin curl)
+APT_PACKAGES=(python3 python3-venv python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7 gir1.2-ayatanaappindicator3-0.1 wl-clipboard pipewire-bin curl)
 if [[ -n "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
   APT_PACKAGES+=(xclip)
 fi
@@ -68,6 +68,8 @@ rm -rf "${APP}/dynamite_tts" "${APP}/icons"
 cp -R "${SRC}/dynamite_tts" "${SRC}/icons" "${APP}/"
 find "${APP}" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "${SRC}/dynamite-tts" "${APP}/dynamite-tts"
+cp "${SRC}/install-phonon.sh" "${APP}/install-phonon.sh"
+chmod +x "${APP}/install-phonon.sh"
 chmod +x "${APP}/dynamite-tts"
 ln -sf "${APP}/dynamite-tts" "${BIN}/dynamite-tts"
 cp "${SRC}/icons/dynamite-tts-idle.png" "${HOME}/.local/share/icons/hicolor/128x128/apps/dynamite-tts.png"
@@ -104,15 +106,19 @@ start_lemonade
 cli="${LEMONADE_DIR}/lemonade"
 
 echo
-echo "== Backends =="
-"${cli}" backends install kokoro:cpu
+echo "== Chat model (Summary and Explain) =="
 "${cli}" backends install llamacpp:cpu
+echo "Downloading the chat model. This can take a few minutes the first time."
+"${cli}" pull Llama-3.2-1B-Instruct-GGUF
 
 echo
-echo "== Models =="
-echo "Downloading the Kokoro voice and the chat model. This can take a few minutes the first time."
-"${cli}" pull kokoro-v1
-"${cli}" pull Llama-3.2-1B-Instruct-GGUF
+echo "== Phonon (default speech engine) =="
+if bash "${SRC}/install-phonon.sh"; then
+  echo "Phonon is ready. Kokoro is not installed; the app fetches it the first time you pick it in Settings → Engine."
+else
+  echo "Phonon setup failed. Speech stays on Phonon, so it will not work until this step succeeds."
+  echo "Rerun ${SRC}/install-phonon.sh, or pick Kokoro in Settings (that downloads it on first use)."
+fi
 
 echo
 echo "== Launch =="

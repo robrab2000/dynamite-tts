@@ -108,12 +108,20 @@ class LemonadeClient:
         raise LemonadeError(f"Lemonade did not start on {host}:{port}. See {log_path}.")
 
     # -- models ---------------------------------------------------------------
-    def ensure_model(self, base_url: str, model: str) -> None:
+    def install_backend(self, base_url: str, recipe: str, backend: str) -> None:
+        """Installs a Lemonade backend (e.g. kokoro:cpu); returns at once when it is already installed."""
+        status, body = _post_json(_endpoint(base_url, "/api/v1/install"), {"recipe": recipe, "backend": backend}, timeout=1800)
+        if not 200 <= status < 300:
+            raise LemonadeError(_shorten(body.decode("utf-8", "replace") or f"Could not install {recipe}:{backend}."))
+
+    def ensure_model(self, base_url: str, model: str, on_download=None) -> None:
         status, body = _post_json(_endpoint(base_url, "/api/v1/load"), {"model_name": model}, timeout=600)
         if 200 <= status < 300:
             return
         text = body.decode("utf-8", "replace")
         if any(marker in text for marker in ("not found", "unknown_model", "not downloaded")):
+            if on_download is not None:
+                on_download()
             self.pull(base_url, model)
             status, body = _post_json(_endpoint(base_url, "/api/v1/load"), {"model_name": model}, timeout=600)
             if 200 <= status < 300:

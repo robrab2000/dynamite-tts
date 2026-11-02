@@ -4,6 +4,8 @@ import Foundation
 final class SpeechSession {
     let settings: SettingsStore
     let player = PCMPlayer()
+    /// The in-process Phonon engine; loaded the first time the Phonon engine is used.
+    let phonon = PhononEngine()
     var onPhase: ((String?) -> Void)?
     var onNotice: ((String) -> Void)?
 
@@ -13,6 +15,7 @@ final class SpeechSession {
     private var generation = 0
     private var streamFinished = false
     private var receivedAudio = false
+    private var kokoroBackendInstalled = false
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -22,7 +25,10 @@ final class SpeechSession {
         }
     }
 
-    func speak(text raw: String, context: String? = nil, mode: SpeakMode? = nil) {
+    /// The engine in use: the launch-argument override, else the setting.
+    var activeEngine: SpeechEngine { LaunchArguments.engineOverride ?? settings.current.engine }
+
+    func speak(text raw: String, context: String? = nil, mode: SpeakMode? = nil, engine: SpeechEngine? = nil) {
         let text = TextCleanup.sanitize(raw)
         guard !text.isEmpty else {
             onNotice?("No text selected")
@@ -32,11 +38,12 @@ final class SpeechSession {
         generation += 1
         let token = generation
         let activeMode = mode ?? settings.current.speakMode
-        AppLog.write("speak chars=\(text.count) mode=\(activeMode.rawValue) voice=\(settings.current.voice)")
+        let engine = engine ?? activeEngine
+        AppLog.write("speak chars=\(text.count) mode=\(activeMode.rawValue) engine=\(engine.rawValue) voice=\(engine == .phonon ? settings.current.phononVoice : settings.current.voice)")
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.run(text: text, context: context, mode: activeMode, token: token)
+                try await self.run(text: text, context: context, mode: activeMode, engine: engine, token: token)
             } catch is CancellationError {
                 return
             } catch {
@@ -54,24 +61,30 @@ final class SpeechSession {
         task?.cancel()
         stream?.cancel()
         stream = nil
+        phonon.cancel()
         player.stop(playChime: playChime && settings.current.playSoundOnStop && receivedAudio)
         receivedAudio = false
         streamFinished = false
         onPhase?(nil)
     }
 
-    private func run(text: String, context: String?, mode: SpeakMode, token: Int) async throws {
+    private func run(text: String, context: String?, mode: SpeakMode, engine: SpeechEngine, token: Int) async throws {
         let settings = settings.current
-        guard let baseURL = URL(string: settings.baseURL) else {
-            throw LemonadeError.message("The Lemonade address is not a valid URL.")
+        let needsLemonade = engine == .kokoro || mode == .summary || mode == .explain
+        var baseURL: URL?
+        if needsLemonade {
+            guard let url = URL(string: settings.baseURL) else {
+                throw LemonadeError.message("The Lemonade address is not a valid URL.")
+            }
+            baseURL = url
+            onPhase?("Starting Lemonade…")
+            try await client.ensureServer(baseURL: url)
+            AppLog.write("lemonade ready \(url.absoluteString)")
+            try Task.checkCancellation()
         }
-        onPhase?("Starting Lemonade…")
-        try await client.ensureServer(baseURL: baseURL)
-        AppLog.write("lemonade ready \(baseURL.absoluteString)")
-        try Task.checkCancellation()
 
         var spoken = text
-        if mode == .summary || mode == .explain {
+        if mode == .summary || mode == .explain, let baseURL {
             onPhase?(mode == .summary ? "Summarizing…" : "Explaining…")
             let model = await client.pickChatModel(baseURL: baseURL, preferred: settings.chatModel)
             try await client.ensureModel(baseURL: baseURL, model: model)
@@ -94,15 +107,84 @@ final class SpeechSession {
 
         try Task.checkCancellation()
         if token != generation { return }
-        onPhase?("Synthesizing…")
-        try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1")
-        AppLog.write("kokoro ready")
-        try Task.checkCancellation()
+        switch engine {
+        case .phonon:
+            try await speakWithPhonon(spoken, settings: settings, token: token)
+        case .kokoro:
+            guard let baseURL else { return }
+            try await speakWithKokoro(spoken, baseURL: baseURL, settings: settings, token: token)
+        }
+    }
+
+    private func startPlayer(_ settings: AppSettings) throws {
         AppLog.write("player prepare device=\(settings.audioDeviceUID.isEmpty ? "default" : settings.audioDeviceUID)")
         try player.prepare(deviceUID: settings.audioDeviceUID)
         AppLog.write("player started")
         streamFinished = false
         receivedAudio = false
+    }
+
+    // MARK: - Phonon (in-process)
+
+    private func speakWithPhonon(_ spoken: String, settings: AppSettings, token: Int) async throws {
+        if !phonon.isLoaded { onPhase?("Loading Phonon…") }
+        phonon.onStatus = { [weak self] status in
+            Task { @MainActor in
+                guard let self, token == self.generation, !self.receivedAudio else { return }
+                if case .ready = self.phonon.state { return }
+                self.onPhase?(status)
+            }
+        }
+        try await phonon.prepare(customModelDir: settings.phononModelDir, language: settings.phononLanguage)
+        try Task.checkCancellation()
+        if token != generation { return }
+        onPhase?("Synthesizing…")
+        try startPlayer(settings)
+        AppLog.write("phonon request chars=\(spoken.count) voice=\(settings.phononVoice) speed=\(settings.speed) lang=\(settings.phononLanguage)")
+        let requested = Date()
+        let stats = try await phonon.speak(text: spoken, voice: settings.phononVoice, speed: settings.speed) { [weak self] samples in
+            Task { @MainActor in
+                guard let self, token == self.generation else { return }
+                if !self.receivedAudio {
+                    self.receivedAudio = true
+                    let ms = Int(Date().timeIntervalSince(requested) * 1000)
+                    AppLog.write("first audio samples=\(samples.count) after \(ms) ms")
+                    self.onPhase?("Speaking")
+                }
+                self.player.enqueue(samples: samples)
+            }
+        }
+        guard token == generation else { return }
+        streamFinished = true
+        if stats.samples == 0 {
+            onNotice?("Phonon produced no audio.")
+            onPhase?(nil)
+        } else if player.scheduledBuffers == 0 {
+            onPhase?(nil)
+        }
+    }
+
+    // MARK: - Kokoro (Lemonade)
+
+    private func speakWithKokoro(_ spoken: String, baseURL: URL, settings: AppSettings, token: Int) async throws {
+        // The installer leaves Kokoro out; its backend and voice (about 340 MB) arrive the first time it is used.
+        if !kokoroBackendInstalled {
+            onPhase?("Installing Kokoro…")
+            try await client.installBackend(baseURL: baseURL, recipe: "kokoro", backend: "metal")
+            kokoroBackendInstalled = true
+            try Task.checkCancellation()
+        }
+        onPhase?("Synthesizing…")
+        try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1") { [weak self] in
+            AppLog.write("kokoro-v1 not downloaded; pulling")
+            Task { @MainActor in
+                guard let self, token == self.generation else { return }
+                self.onPhase?("Downloading Kokoro (once)…")
+            }
+        }
+        AppLog.write("kokoro ready")
+        try Task.checkCancellation()
+        try startPlayer(settings)
 
         let stream = PCMStream(
             onPCM: { [weak self] data in

@@ -99,18 +99,15 @@ start_lemonade "$lemonade_dir"
 cli="${lemonade_dir}/lemonade"
 
 echo
-echo "== Metal backends =="
-"${cli}" backends install kokoro:metal
+echo "== Chat model (Summary and Explain) =="
+echo "Kokoro is not installed here; the app fetches it the first time you pick it in Settings."
 "${cli}" backends install llamacpp:metal
-
-echo
-echo "== Models =="
-echo "Downloading the Kokoro voice and the chat model. This can take a few minutes the first time."
-"${cli}" pull kokoro-v1
+echo "Downloading the chat model. This can take a few minutes the first time."
 "${cli}" pull Llama-3.2-1B-Instruct-GGUF
 
 echo
 echo "== Build =="
+echo "This also fetches the Phonon voice model (65 MB) the first time."
 "${workdir}/macos/package-app.sh"
 
 destination="${HOME}/Applications"

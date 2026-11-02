@@ -87,7 +87,20 @@ final class LemonadeClient: @unchecked Sendable {
         throw LemonadeError.message("Lemonade did not start on \(baseURL.host ?? "127.0.0.1"):\(port).")
     }
 
-    func ensureModel(baseURL: URL, model: String) async throws {
+    /// Installs a Lemonade backend (`recipe:backend`, e.g. `kokoro:metal`); returns at once when it is installed.
+    func installBackend(baseURL: URL, recipe: String, backend: String) async throws {
+        var request = URLRequest(url: lemonadeEndpoint(baseURL, "/api/v1/install"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 600
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["recipe": recipe, "backend": backend])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw LemonadeError.message(shorten(String(data: data, encoding: .utf8) ?? "Could not install \(recipe):\(backend)."))
+        }
+    }
+
+    func ensureModel(baseURL: URL, model: String, onDownload: (@Sendable () -> Void)? = nil) async throws {
         var request = URLRequest(url: lemonadeEndpoint(baseURL, "/api/v1/load"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -98,6 +111,7 @@ final class LemonadeClient: @unchecked Sendable {
         }
         let body = String(data: data, encoding: .utf8) ?? ""
         if body.contains("not found") || body.contains("unknown_model") || body.contains("not downloaded") {
+            onDownload?()
             try await pull(baseURL: baseURL, model: model)
             let (retryData, retryResponse) = try await session.data(for: request)
             if let http = retryResponse as? HTTPURLResponse, (200..<300).contains(http.statusCode) {

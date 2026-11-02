@@ -219,6 +219,8 @@ public class LocalTtsService : IDisposable
         }
         else
         {
+            if (!TryFindLocalModel(precision, out _))
+                SetState(LocalEngineState.Loading, "Downloading the Kokoro model (325 MB, once)…");
             modelPath = ResolveModelPathAsync(precision, ct).GetAwaiter().GetResult();
         }
 

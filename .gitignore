@@ -19,7 +19,15 @@ artifacts/
 # Large ONNX / voice model downloads (experiment + local caches)
 *.onnx
 *.bin
+*.gguf
+*.safetensors
 windows/experiments/models/
+# Repo root only. A bare `models/` also hides windows/src/DynamiteTts/Models on a
+# case-insensitive checkout, which kept PhononVoice.cs out of the tree.
+/models/
+
+# Rust build output (Phonon shim)
+windows/native/phonon/target/
 !windows/experiments/**/*.md
 
 # macOS app build
@@ -44,3 +52,5 @@ windows/experiments/bubble-shots/
 # Python
 __pycache__/
 *.pyc
+
+windows/experiments/settings-shots/

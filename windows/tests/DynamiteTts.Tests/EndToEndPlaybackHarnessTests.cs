@@ -99,6 +99,88 @@ public class EndToEndPlaybackHarnessTests
         });
     }
 
+    /// <summary>Same end-to-end path through the Phonon engine: orchestrator + dynamite_phonon.dll + WASAPI.</summary>
+    [Fact]
+    public void PhononEngine_StartsPlaybackBeforeSynthesisFinishes()
+    {
+        if (!PhononTtsService.IsRuntimePresent() || PhononTtsService.ResolveModelDirectory(null) == null)
+        {
+            _output.WriteLine("skipped: Phonon runtime or model not present next to the test binary");
+            return;
+        }
+
+        RunOnDispatcher(async dispatcher =>
+        {
+            var settingsPath = Path.Combine(Path.GetTempPath(), $"e2e_{Guid.NewGuid():N}.json");
+            try
+            {
+                var store = new AppSettingsStore(settingsPath);
+                var settings = store.Current;
+                settings.EngineMode = AppSettings.EnginePhonon;
+                settings.PhononVoice = "Easton";
+                settings.PhononLanguage = "en";
+                settings.Speed = 1.15;
+                store.Save(settings);
+
+                using var trayHost = new TrayIconHost();
+                var kokoro = new LocalTtsService { AutoDownloadGpuRuntime = false };
+                var phonon = new PhononTtsService();
+                var audio = new AudioPlaybackService();
+                var lemonade = new LemonadeTtsClient();
+                var chat = new LemonadeChatClient();
+                var orchestrator = new SpeechOrchestrator(
+                    store, new ClipboardSelectionService(), lemonade, chat, kokoro, audio, trayHost, new TrayNotificationService(trayHost),
+                    phononService: phonon);
+
+                var clock = Stopwatch.StartNew();
+                orchestrator.StateChanged += state =>
+                {
+                    dispatcher.Invoke(() => { });
+                    _output.WriteLine($"    {clock.ElapsedMilliseconds,6} ms  state -> {state} (thread {Environment.CurrentManagedThreadId})");
+                };
+                phonon.StatusChanged += s => _output.WriteLine($"    phonon: {phonon.State}: {s}");
+
+                audio.WarmUp(settings.AudioDeviceId);
+                await phonon.InitializeAsync(settings);
+                _output.WriteLine($"engine: {phonon.State}: {phonon.Description}");
+
+                for (int run = 1; run <= 2; run++)
+                {
+                    clock.Restart();
+                    await orchestrator.SpeakTextAsync(Paragraph);
+                    var m = orchestrator.LastMetrics!;
+                    _output.WriteLine($"  run{run}: {m}");
+
+                    Assert.Equal("phonon", m.Engine);
+                    Assert.False(m.UsedFallback, $"phonon streaming fell back: {m.FallbackReason}");
+                    Assert.False(m.Cancelled);
+                    Assert.True(m.Segments >= 3, "expected several audio blocks");
+                    Assert.InRange(m.FirstAudioMs, 0, 1500);
+                    Assert.True(m.FirstAudioMs < m.SynthesisDoneMs,
+                        $"playback should start before synthesis finishes (first audible {m.FirstAudioMs:F0} ms, synthesis done {m.SynthesisDoneMs:F0} ms)");
+                    Assert.True(m.UnderrunSeconds < 0.5, $"playback starved for {m.UnderrunSeconds:F2}s");
+                    Assert.Equal(TrayIconState.Idle, orchestrator.CurrentState);
+                }
+
+                // Stop mid-utterance must leave the pipeline idle and reusable.
+                clock.Restart();
+                var speaking = orchestrator.SpeakTextAsync(Paragraph);
+                await Task.Delay(1200);
+                orchestrator.Stop();
+                await speaking;
+                _output.WriteLine($"  stop: {orchestrator.LastMetrics}");
+                Assert.True(orchestrator.LastMetrics!.Cancelled);
+                Assert.Equal(TrayIconState.Idle, orchestrator.CurrentState);
+
+                orchestrator.Dispose();
+            }
+            finally
+            {
+                try { File.Delete(settingsPath); } catch { }
+            }
+        });
+    }
+
     private static void RunOnDispatcher(Func<Dispatcher, Task> body)
     {
         Exception? failure = null;

@@ -78,6 +78,20 @@ struct Hotkey: Codable, Equatable {
     }
 }
 
+enum SpeechEngine: String, Codable, CaseIterable {
+    /// Lemonade's Metal Kokoro over HTTP; its backend and voice download the first time it is used.
+    case kokoro
+    /// Gradium's Phonon in-process through the dynamite_phonon shim (CPU). The default.
+    case phonon
+
+    var title: String {
+        switch self {
+        case .kokoro: "Kokoro (Lemonade)"
+        case .phonon: "Phonon (in-process)"
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var baseURL: String = "http://127.0.0.1:13305"
     var voice: String = "af_heart"
@@ -92,8 +106,47 @@ struct AppSettings: Codable, Equatable {
     var explainSentenceCount: Int = 3
     var explainAudience: ExplainAudience = .technical
     var chatModel: String = "Llama-3.2-1B-Instruct-GGUF"
+    var engine: SpeechEngine = .phonon
+    /// "default" = the checkpoint's own voice; otherwise a name from the Phonon voice catalogue.
+    var phononVoice: String = PhononVoice.defaultId
+    /// Text normalization language for Phonon (en, fr, de, es, pt or none).
+    var phononLanguage: String = "en"
+    /// Empty = the bundled or downloaded phonon-31m-en; otherwise a checkpoint folder (e.g. a gated 40M model).
+    var phononModelDir: String = ""
 
     var clampedExplainSentences: Int { min(8, max(1, explainSentenceCount)) }
+
+    init() {}
+
+    /// Keys missing from an older settings.json keep their defaults instead of discarding the file.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? baseURL
+        voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? voice
+        speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? speed
+        speakMode = try c.decodeIfPresent(SpeakMode.self, forKey: .speakMode) ?? speakMode
+        speakHotkey = try c.decodeIfPresent(Hotkey.self, forKey: .speakHotkey) ?? speakHotkey
+        modeHotkey = try c.decodeIfPresent(Hotkey.self, forKey: .modeHotkey) ?? modeHotkey
+        audioDeviceUID = try c.decodeIfPresent(String.self, forKey: .audioDeviceUID) ?? audioDeviceUID
+        launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? launchAtLogin
+        showStatusPanel = try c.decodeIfPresent(Bool.self, forKey: .showStatusPanel) ?? showStatusPanel
+        playSoundOnStop = try c.decodeIfPresent(Bool.self, forKey: .playSoundOnStop) ?? playSoundOnStop
+        explainSentenceCount = try c.decodeIfPresent(Int.self, forKey: .explainSentenceCount) ?? explainSentenceCount
+        explainAudience = try c.decodeIfPresent(ExplainAudience.self, forKey: .explainAudience) ?? explainAudience
+        chatModel = try c.decodeIfPresent(String.self, forKey: .chatModel) ?? chatModel
+        engine = (try? c.decodeIfPresent(SpeechEngine.self, forKey: .engine)) ?? engine
+        phononVoice = try c.decodeIfPresent(String.self, forKey: .phononVoice) ?? phononVoice
+        phononLanguage = try c.decodeIfPresent(String.self, forKey: .phononLanguage) ?? phononLanguage
+        phononModelDir = try c.decodeIfPresent(String.self, forKey: .phononModelDir) ?? phononModelDir
+    }
+}
+
+enum PhononLanguages {
+    /// Text normalization languages the ptts runtime accepts; "none" skips normalization.
+    static let options: [(id: String, name: String)] = [
+        ("en", "English"), ("fr", "French"), ("de", "German"), ("es", "Spanish"), ("pt", "Portuguese"),
+        ("none", "None (no text normalization)"),
+    ]
 }
 
 enum VoiceCatalog {

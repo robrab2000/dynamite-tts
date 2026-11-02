@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dynamite_tts.settings import AppSettings, ExplainAudience, SettingsStore, SpeakMode
+from dynamite_tts.settings import AppSettings, Engine, ExplainAudience, SettingsStore, SpeakMode, phonon_voices_for
 
 
 class SettingsTests(unittest.TestCase):
@@ -34,6 +34,26 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.speak_mode, SpeakMode.VERBATIM)
         self.assertEqual(settings.base_url, "http://localhost:1")
         self.assertEqual(settings.speak_hotkey, "<Control><Shift>s")
+
+    def test_engine_fields_round_trip_and_default_to_phonon(self):
+        self.assertEqual(AppSettings().engine, Engine.PHONON)
+        self.assertTrue(AppSettings().uses_phonon)
+        self.assertEqual(AppSettings.from_json({"engine": "kokoro"}).engine, Engine.KOKORO)
+        settings = AppSettings.from_json({"engine": "phonon", "phonon_voice": " Easton ", "phonon_language": "EN", "phonon_model_dir": " "})
+        self.assertTrue(settings.uses_phonon)
+        self.assertEqual(settings.phonon_voice, "Easton")
+        self.assertEqual(settings.phonon_language, "en")
+        self.assertEqual(settings.phonon_model_dir, "")
+        self.assertEqual(settings.to_json()["engine"], "phonon")
+        self.assertEqual(AppSettings.from_json({"engine": "bogus"}).engine, Engine.PHONON)
+
+    def test_phonon_voices_list_default_first_then_language(self):
+        voices = phonon_voices_for("en")
+        self.assertEqual(voices[0][0], "default")
+        names = [v[0] for v in voices]
+        self.assertIn("Easton", names)
+        self.assertLess(names.index("Easton"), names.index("Léa") if "Léa" in names else len(names))
+        self.assertEqual(len(names), len(set(names)))
 
     def test_missing_file_gives_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:

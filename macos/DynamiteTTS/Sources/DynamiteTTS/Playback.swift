@@ -144,6 +144,30 @@ final class PCMPlayer {
         }
     }
 
+    /// Float samples in [-1, 1] at 24 kHz mono, as the Phonon engine produces them.
+    func enqueue(samples: [Float]) {
+        guard started, !samples.isEmpty else { return }
+        let framesPerBuffer = 4_800
+        var offset = 0
+        while offset < samples.count {
+            let frames = min(framesPerBuffer, samples.count - offset)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+                  let channel = buffer.floatChannelData?[0] else { return }
+            buffer.frameLength = AVAudioFrameCount(frames)
+            var peak: Float = 0
+            samples.withUnsafeBufferPointer { source in
+                for index in 0..<frames {
+                    let sample = max(-1, min(1, source[offset + index]))
+                    channel[index] = sample
+                    peak = max(peak, abs(sample))
+                }
+            }
+            level = max(level, peak)
+            schedule(buffer, countsAsSpeech: true)
+            offset += frames
+        }
+    }
+
     func stop(playChime: Bool) {
         playGeneration += 1
         player.stop()

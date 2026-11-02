@@ -53,8 +53,49 @@
                         <Label Content="Inference Engine" Target="{Binding ElementName=EngineComboBox}" />
                         <ComboBox x:Name="EngineComboBox" Margin="0,0,0,10" SelectionChanged="OnEngineSelectionChanged">
                             <ComboBoxItem Content="Local Kokoro (In-Process — CPU, NVIDIA GPU via CUDA when available)" Tag="DirectML" IsSelected="True" />
+                            <ComboBoxItem Content="Local Phonon (In-Process — CPU; Gradium's 31M model, ~100 voices, 5 languages)" Tag="Phonon" />
                             <ComboBoxItem Content="Lemonade Server (HTTP Endpoint)" Tag="LemonadeServer" />
                         </ComboBox>
+
+                        <!-- Phonon Configuration & Status (shown when Phonon selected) -->
+                        <StackPanel x:Name="PhononInfoPanel" Visibility="Collapsed" Margin="0,0,0,4">
+                            <Label Content="Text Language" Target="{Binding ElementName=PhononLanguageComboBox}" />
+                            <ComboBox x:Name="PhononLanguageComboBox" Margin="0,0,0,10" SelectionChanged="OnPhononLanguageChanged">
+                                <ComboBoxItem Content="English (en)" Tag="en" IsSelected="True" />
+                                <ComboBoxItem Content="French (fr) — needs a Phonon 40M model" Tag="fr" />
+                                <ComboBoxItem Content="German (de) — needs a Phonon 40M model" Tag="de" />
+                                <ComboBoxItem Content="Spanish (es) — needs a Phonon 40M model" Tag="es" />
+                                <ComboBoxItem Content="Portuguese (pt) — needs a Phonon 40M model" Tag="pt" />
+                                <ComboBoxItem Content="None (read text exactly as written)" Tag="none" />
+                            </ComboBox>
+
+                            <Label Content="Model Folder (optional)" Target="{Binding ElementName=PhononModelDirTextBox}" />
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="PhononModelDirTextBox" VerticalAlignment="Center" ToolTip="Leave empty for the bundled Phonon 31M English model. Point this at a checkpoint folder (config.json, tokenizer.json, model.q8.gguf, voices) to use another Phonon model, e.g. the multilingual 40M model downloaded from Hugging Face." />
+                                <Button Grid.Column="1"
+                                        x:Name="BrowsePhononModelButton"
+                                        Content="Browse…"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Margin="8,0,0,0"
+                                        Click="OnBrowsePhononModelClick" />
+                            </Grid>
+                            <TextBlock Text="Empty = the bundled Phonon 31M English model (Apache 2.0). For French, German, Spanish or Portuguese download a Phonon 40M checkpoint from huggingface.co/gradium (gated, non-commercial licence) into a folder and select it here."
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+
+                            <Border Background="{DynamicResource InputBackgroundBrush}" CornerRadius="4" Padding="10">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
+                                        <Ellipse x:Name="PhononStatusDot" Width="9" Height="9" Fill="{DynamicResource WarningBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="PhononStatusTitle" Text="Phonon engine not loaded" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource WarningBrush}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="PhononStatusDetails" Text="Loads on first use. Phonon streams 80 ms frames as it generates them: first audio in well under 0.1 s and about 10x realtime on a few CPU cores. Nothing leaves this machine." FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
 
                         <!-- DirectML Configuration & Status Info -->
                         <StackPanel x:Name="DirectMlInfoPanel" Margin="0,0,0,4">

@@ -55,7 +55,7 @@ Name: "startupicon"; Description: "Start Dynamite TTS when I sign in to Windows"
 Name: "installlemonade"; Description: "Install Lemonade Server (needed for Summary mode; opt out if you only want Verbatim TTS)"; GroupDescription: "Optional components:"
 
 [Files]
-; Published app payload (exe, voices, kokoro.onnx). Strip debug/link leftovers.
+; Published app payload (exe, Kokoro voices, Phonon shim and model). Strip debug/link leftovers.
 Source: "..\artifacts\publish\*"; DestDir: "{app}"; \
   Flags: ignoreversion recursesubdirs createallsubdirs; \
   Excludes: "*.pdb;*.lib;*.exp;*.iobj;*.ipdb"

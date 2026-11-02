@@ -4,7 +4,8 @@ param(
     [string]$OutputPath = "artifacts/publish",
     [string]$Version = "",
     [switch]$SkipInstaller,
-    [switch]$SkipModelDownload
+    [switch]$SkipModelDownload,
+    [switch]$SkipPhonon
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +21,29 @@ Set-Location $repoRoot
 if (-not $Version) {
     $Version = (Select-Xml -Path $projectPath -XPath "//Version" | Select-Object -ExpandProperty Node).InnerText
     if (-not $Version) { $Version = "0.0.0" }
+}
+
+# Phonon engine shim (Rust). Built before `dotnet publish` so the csproj's Exists() check picks the DLL up.
+$phononCrate = Join-Path $repoRoot "native\phonon"
+$phononDll = Join-Path $phononCrate "target\release\dynamite_phonon.dll"
+if (-not $SkipPhonon) {
+    $cargo = Get-Command cargo -ErrorAction SilentlyContinue
+    if ($cargo) {
+        Write-Host "Building the Phonon engine shim (cargo build --release)..." -ForegroundColor Cyan
+        Push-Location $phononCrate
+        try {
+            cargo build --release
+            if ($LASTEXITCODE -ne 0) { throw "cargo build failed with exit code $LASTEXITCODE" }
+        }
+        finally { Pop-Location }
+    }
+    elseif (Test-Path $phononDll) {
+        Write-Host "cargo not found; using the existing $phononDll" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "cargo not found and no prebuilt dynamite_phonon.dll: the Phonon engine will be unavailable in this build." -ForegroundColor Yellow
+        Write-Host "Install Rust (https://rustup.rs) and re-run, or pass -SkipPhonon to silence this."
+    }
 }
 
 if (Test-Path $OutputPath) {
@@ -46,43 +70,54 @@ if ($LASTEXITCODE -ne 0) {
 Get-ChildItem $OutputPath -Recurse -Include *.pdb, *.lib, *.exp, *.iobj, *.ipdb -ErrorAction SilentlyContinue |
     Remove-Item -Force -ErrorAction SilentlyContinue
 
-function Ensure-KokoroModel {
+# Kokoro's model (325 MB) is not shipped: the app downloads it the first time Kokoro is chosen.
+# Drop any copy left in the publish folder by older builds.
+Get-ChildItem $OutputPath -Filter "kokoro*.onnx" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+function Ensure-PhononModel {
     param([string]$PublishDir)
 
-    $target = Join-Path $PublishDir "kokoro.onnx"
-    if ((Test-Path $target) -and ((Get-Item $target).Length -gt 1MB)) {
-        Write-Host "Kokoro model already present: $target"
-        return
+    # Same pinned revision and hashes as PhononTtsService.ModelFiles.
+    $revision = "8c64b55ec301728e2d1695bfea87a08a267d0c2d"
+    $files = @(
+        @{ Name = "config.json";               Sha256 = "7062ea376e6b158543c8abec8e5af67df171c49ad70eb7e2a0fb25c16f265e06" },
+        @{ Name = "tokenizer.json";            Sha256 = "691a00068fa7b989f2f3e5ae5daa2d1a5bb319f2d5360deafcfb19a8bb6e7936" },
+        @{ Name = "model.q8.gguf";             Sha256 = "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae" },
+        @{ Name = "default-voice.safetensors"; Sha256 = "f739e8c4c76ee7f92e7c94a82002748c8cd22e99582ac49f7b9b94cd63786e18" }
+    )
+    $dir = Join-Path $PublishDir "models\phonon-31m-en"
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $repoModel = Join-Path (Split-Path $repoRoot -Parent) "models\phonon-31m-en"
+    foreach ($f in $files) {
+        $target = Join-Path $dir $f.Name
+        if ((Test-Path $target) -and ((Get-FileHash $target -Algorithm SHA256).Hash -ieq $f.Sha256)) { continue }
+        $local = Join-Path $repoModel $f.Name
+        if ((Test-Path $local) -and ((Get-FileHash $local -Algorithm SHA256).Hash -ieq $f.Sha256)) {
+            Copy-Item $local $target -Force
+            continue
+        }
+        $url = "https://huggingface.co/gradium/phonon-31m-en/resolve/$revision/$($f.Name)"
+        Write-Host "Downloading Phonon model file $($f.Name)..." -ForegroundColor Cyan
+        $tmp = "$target.tmp"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
+            $hash = (Get-FileHash $tmp -Algorithm SHA256).Hash
+            if ($hash -ine $f.Sha256) { throw "$($f.Name) failed its checksum ($hash)" }
+            Move-Item $tmp $target -Force
+        }
+        catch {
+            if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+            throw "Failed to obtain $($f.Name) for the installer: $_"
+        }
     }
-
-    $repoModel = Join-Path $repoRoot "kokoro.onnx"
-    if ((Test-Path $repoModel) -and ((Get-Item $repoModel).Length -gt 1MB)) {
-        Copy-Item $repoModel $target -Force
-        Write-Host "Copied kokoro.onnx from repo root into publish output."
-        return
-    }
-
-    $url = "https://github.com/Lyrcaxis/KokoroSharpBinaries/releases/download/v2.0.0/kokoro.onnx"
-    Write-Host "Downloading Kokoro model for a ready-to-run install..." -ForegroundColor Cyan
-    Write-Host "  $url"
-    $tmp = "$target.tmp"
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
-        if ((Get-Item $tmp).Length -lt 1MB) { throw "Downloaded kokoro.onnx looks too small." }
-        Move-Item $tmp $target -Force
-        Write-Host "Model saved to $target ($([math]::Round((Get-Item $target).Length / 1MB, 1)) MB)"
-    }
-    catch {
-        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
-        throw "Failed to obtain kokoro.onnx for the installer: $_"
-    }
+    Write-Host "Phonon model present: $dir"
 }
 
-if (-not $SkipModelDownload) {
-    Ensure-KokoroModel -PublishDir $OutputPath
+if (-not $SkipModelDownload -and -not $SkipPhonon) {
+    Ensure-PhononModel -PublishDir $OutputPath
 }
 
-# Portable zip (same payload as the installer: exe + voices + model).
+# Portable zip (same payload as the installer: exe + Kokoro voices + Phonon shim and model).
 $zipName = "DynamiteTts-$Runtime-v$Version.zip"
 $zipPath = Join-Path "artifacts" $zipName
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
