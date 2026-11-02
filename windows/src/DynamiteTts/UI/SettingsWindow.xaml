@@ -205,7 +205,11 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="VoiceComboBox" IsEditable="True" VerticalAlignment="Center" />
+                            <ComboBox x:Name="VoiceComboBox"
+                                      IsEditable="True"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="OnVoiceSelectionChanged"
+                                      LostFocus="OnVoiceLostFocus" />
                             <Button Grid.Column="1"
                                     x:Name="PreviewVoiceButton"
                                     Content="Preview Voice"

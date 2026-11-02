@@ -74,6 +74,12 @@ public class SpeechOrchestrator : IDisposable
 
     public SpeakMode CurrentSpeakMode => _settingsStore.Current.SpeakMode;
 
+    /// <summary>
+    /// Unsaved voice picked in the settings window. Used instead of the saved voice until the
+    /// settings are saved or discarded; null means use the saved voice.
+    /// </summary>
+    public string? VoiceOverride { get; set; }
+
     public bool IsBusy
     {
         get
@@ -489,7 +495,19 @@ public class SpeechOrchestrator : IDisposable
         try
         {
             var settings = overrideSettings ?? _settingsStore.Current;
-            var voice = settings.Voice;
+            if (overrideSettings == null)
+            {
+                var liveVoice = VoiceOverride;
+                if (!string.IsNullOrWhiteSpace(liveVoice))
+                {
+                    if (settings.IsPhononEngine)
+                        settings.PhononVoice = liveVoice;
+                    else
+                        settings.Voice = liveVoice;
+                }
+            }
+
+            var voice = settings.IsPhononEngine ? settings.PhononVoice : settings.Voice;
             var chunks = SentenceChunker.SplitIntoChunks(textToSpeak);
 
             if (chunks.Count == 0 || cts.IsCancellationRequested)

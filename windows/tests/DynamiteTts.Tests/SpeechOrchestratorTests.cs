@@ -147,6 +147,70 @@ public class SpeechOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task SpeakTextAsync_VoiceOverride_AppliesUntilClearedWithoutSaving()
+    {
+        var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var saved = settingsStore.Current;
+        saved.EngineMode = "LemonadeServer";
+        saved.Voice = "coral";
+        settingsStore.Save(saved);
+
+        var clipboardService = new ClipboardSelectionService();
+        var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
+
+        var wavData = new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 36, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'e', (byte)'f', (byte)'m', (byte)'t', (byte)' ', 16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3E, 0, 0, 0x00, 0x7D, 0, 0, 2, 0, 16, 0, (byte)'d', (byte)'a', (byte)'t', (byte)'a', 0, 0, 0, 0 };
+
+        string? capturedVoice = null;
+        var handler = new MockHttpMessageHandler
+        {
+            Handler = req =>
+            {
+                var json = req.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (!string.IsNullOrEmpty(json))
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("voice", out var vProp))
+                        capturedVoice = vProp.GetString();
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(wavData)
+                };
+            }
+        };
+
+        using var httpClient = new HttpClient(handler);
+        using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient();
+        using var trayHost = new TrayIconHost();
+        var notificationService = new TrayNotificationService(trayHost);
+
+        using var orchestrator = new SpeechOrchestrator(
+            settingsStore,
+            clipboardService,
+            ttsClient,
+            chatClient,
+            localTtsService,
+            audioService,
+            trayHost,
+            notificationService);
+
+        orchestrator.VoiceOverride = "af_sky";
+        await orchestrator.SpeakTextAsync("Hello from the unsaved voice");
+
+        Assert.Equal("af_sky", capturedVoice);
+        Assert.Equal("coral", settingsStore.Current.Voice);
+
+        orchestrator.VoiceOverride = null;
+        await orchestrator.SpeakTextAsync("Hello from the saved voice");
+
+        Assert.Equal("coral", capturedVoice);
+        Assert.Equal("coral", settingsStore.Current.Voice);
+    }
+
+    [Fact]
     public void Stop_WhenIdle_DoesNotThrow()
     {
         var settingsStore = new AppSettingsStore(_tempSettingsPath);
