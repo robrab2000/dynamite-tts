@@ -135,6 +135,7 @@ public class SettingsWindowVisualTests
         Assert.Equal(3, engineBox.Items.Count);
         Assert.Equal(Visibility.Collapsed, phononPanel.Visibility);
         Assert.Contains(voiceBox.Items.OfType<ComboBoxItem>(), i => Equals(i.Tag, "am_adam"));
+        AssertChoiceListsAreClosed(window, voiceBox);
         Save(window, Path.Combine(shots, "1-kokoro.png"));
 
         engineBox.SelectedItem = engineBox.Items.OfType<ComboBoxItem>().First(i => Equals(i.Tag, AppSettings.EnginePhonon));
@@ -148,6 +149,7 @@ public class SettingsWindowVisualTests
         Assert.Contains("Easton", voices);
         Assert.DoesNotContain("am_adam", voices);
         Assert.Equal(PhononVoice.DefaultId, (voiceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString());
+        AssertClosedCombo(voiceBox);
         _output.WriteLine($"phonon status: {statusTitle.Text}");
         Save(window, Path.Combine(shots, "2-phonon.png"));
 
@@ -156,6 +158,33 @@ public class SettingsWindowVisualTests
         await Idle(dispatcher);
         Assert.Equal(Visibility.Collapsed, phononPanel.Visibility);
         Assert.Contains(voiceBox.Items.OfType<ComboBoxItem>(), i => Equals(i.Tag, "af_heart"));
+    }
+
+    private static void AssertChoiceListsAreClosed(SettingsWindow window, ComboBox voiceBox)
+    {
+        AssertClosedCombo(voiceBox);
+        AssertClosedCombo((ComboBox)window.FindName("ModelComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("ChatModelComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("EngineComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("PhononLanguageComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("DirectMlDeviceComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("DirectMlPrecisionComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("AudioDeviceComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("SpeakModeComboBox")!);
+        AssertClosedCombo((ComboBox)window.FindName("ExplainAudienceComboBox")!);
+
+        var selectedVoice = (voiceBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        Assert.False(string.IsNullOrEmpty(selectedVoice));
+        Assert.Contains(voiceBox.Items.OfType<ComboBoxItem>(), i => Equals(i.Tag, selectedVoice));
+    }
+
+    private static void AssertClosedCombo(ComboBox box)
+    {
+        Assert.False(box.IsEditable);
+        // The dark-theme template swaps in a text box only when IsEditable is true.
+        var editor = box.Template?.FindName("PART_EditableTextBox", box) as TextBox;
+        if (editor != null)
+            Assert.Equal(Visibility.Hidden, editor.Visibility);
     }
 
     private static Task Idle(Dispatcher dispatcher) => dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;

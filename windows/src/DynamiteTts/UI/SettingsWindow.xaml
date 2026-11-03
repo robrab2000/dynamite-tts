@@ -189,7 +189,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <ComboBox x:Name="ModelComboBox" IsEditable="True" VerticalAlignment="Center" />
+                                <ComboBox x:Name="ModelComboBox" VerticalAlignment="Center" />
                                 <Button Grid.Column="1"
                                         x:Name="RefreshModelsButton"
                                         Content="Refresh"
@@ -205,7 +205,7 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="VoiceComboBox" IsEditable="True" VerticalAlignment="Center" />
+                            <ComboBox x:Name="VoiceComboBox" VerticalAlignment="Center" />
                             <Button Grid.Column="1"
                                     x:Name="PreviewVoiceButton"
                                     Content="Preview Voice"
@@ -293,7 +293,7 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <ComboBox x:Name="ChatModelComboBox" IsEditable="True" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="ChatModelComboBox" VerticalAlignment="Center" />
                                     <Button Grid.Column="1"
                                             Content="Refresh"
                                             Style="{StaticResource SecondaryButton}"
