@@ -347,6 +347,12 @@
                                   FontSize="13"
                                   Margin="0,0,0,10"
                                   Cursor="Hand" />
+                        <CheckBox x:Name="HotkeyStopsSpeechCheckBox"
+                                  Content="Pressing the speak hotkey while speaking stops speech (instead of reading the new selection)"
+                                  Foreground="{DynamicResource TextPrimaryBrush}"
+                                  FontSize="13"
+                                  Margin="0,0,0,10"
+                                  Cursor="Hand" />
                         <CheckBox x:Name="ShowStatusBubbleCheckBox"
                                   Content="Show status bubble at the top of the screen while reading, synthesizing and speaking"
                                   Foreground="{DynamicResource TextPrimaryBrush}"

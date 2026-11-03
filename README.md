@@ -33,7 +33,7 @@ A GTK tray app for GNOME (Wayland or X11) and other desktops. Like the Mac app i
 ./linux/install.sh
 ```
 
-The script installs the system packages with `apt` (asks for your password once), puts Lemonade and the app under `~/.local`, installs Phonon and downloads the chat model, and starts the tray icon. It needs Ubuntu 24.04 or later, or any distribution with Python 3.11+, GTK 3, libnotify, and PipeWire or PulseAudio. Highlight some text and press `Ctrl+Shift+S`; `Ctrl+Shift+M` cycles Verbatim → Summary → Explain.
+The script installs the system packages with `apt` (asks for your password once), puts Lemonade and the app under `~/.local`, installs Phonon and downloads the chat model, and starts the tray icon. It needs Ubuntu 24.04 or later, or any distribution with Python 3.11+, GTK 3, libnotify, and PipeWire or PulseAudio. Highlight some text and press `Ctrl+Shift+S`; `Ctrl+Shift+M` cycles Verbatim → Summary → Explain. While speech is playing, `Ctrl+Shift+S` stops it. Turn that off in Settings to have the shortcut read a new highlight instead.
 
 How it differs from the other platforms:
 
@@ -70,6 +70,7 @@ Measured on a 6-core i7-8750H (CPU only): about 1 s to first audio for a short s
   - **Speaking:** Audio wave icon with tooltip `Dynamite TTS (Speaking...)`
 - **Global Hotkey (Default: `Ctrl+Shift+S`):**
   - Instant text-to-speech from any application (browser, PDF, code editor, office apps).
+  - While speech is playing, the shortcut stops it. Turn off "Pressing the speak hotkey while speaking stops speech" in Settings to have it read a newly highlighted selection instead. The same checkbox exists on macOS and Linux.
   - Modifier key debounce so standard `Ctrl+C` copy operates reliably in every application.
   - Interactive "Press Shortcut" recorder in Settings with dynamic conflict detection and instant rebinding (no restart required).
 - **Speak Mode Toggle (Default: `Ctrl+Shift+M`):**

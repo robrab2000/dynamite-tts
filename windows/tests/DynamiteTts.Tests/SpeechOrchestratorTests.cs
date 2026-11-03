@@ -451,6 +451,64 @@ public class SpeechOrchestratorTests : IDisposable
         Assert.Contains(TrayIconState.Speaking, states);
     }
 
+    private class BlockingHttpMessageHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, System.Threading.CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    [Fact]
+    public async Task SpeakSelectionAsync_WhileBusy_StopsWithoutReadingNewSelection()
+    {
+        var settingsStore = new AppSettingsStore(_tempSettingsPath);
+        var settings = settingsStore.Current;
+        settings.EngineMode = "LemonadeServer";
+        settings.PlaySoundOnStop = false;
+        Assert.True(settings.HotkeyStopsSpeech);
+        settingsStore.Save(settings);
+
+        var handler = new BlockingHttpMessageHandler();
+        using var httpClient = new HttpClient(handler);
+        using var ttsClient = new LemonadeTtsClient(httpClient);
+        using var chatClient = new LemonadeChatClient();
+        var clipboardService = new ClipboardSelectionService();
+        var audioService = new AudioPlaybackService();
+        using var localTtsService = new LocalTtsService();
+        using var trayHost = new TrayIconHost();
+        var notificationService = new TrayNotificationService(trayHost);
+
+        using var orchestrator = new SpeechOrchestrator(
+            settingsStore,
+            clipboardService,
+            ttsClient,
+            chatClient,
+            localTtsService,
+            audioService,
+            trayHost,
+            notificationService);
+
+        var states = new List<TrayIconState>();
+        orchestrator.StateChanged += s => states.Add(s);
+
+        var speaking = orchestrator.SpeakTextAsync("A long passage that is still being synthesized.");
+        await handler.RequestStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(orchestrator.IsBusy);
+
+        await orchestrator.SpeakSelectionAsync();
+        await speaking.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(orchestrator.IsBusy);
+        Assert.Equal(TrayIconState.Idle, orchestrator.CurrentState);
+        Assert.DoesNotContain(TrayIconState.Capturing, states);
+        Assert.True(orchestrator.LastMetrics?.Cancelled);
+    }
+
     [Fact]
     public void PlayStopChime_DoesNotThrow()
     {

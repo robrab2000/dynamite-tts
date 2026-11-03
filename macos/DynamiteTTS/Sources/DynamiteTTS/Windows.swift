@@ -20,6 +20,7 @@ final class SettingsWindowController: NSWindowController {
     private var loginStatus: NSTextField!
     private var panelCheck: NSButton!
     private var chimeCheck: NSButton!
+    private var hotkeyStopsCheck: NSButton!
     private var sentences: NSStepper!
     private var sentenceLabel: NSTextField!
     private var audiencePopup: NSPopUpButton!
@@ -177,8 +178,10 @@ final class SettingsWindowController: NSWindowController {
 
         panelCheck = checkbox("Show the status panel", #selector(save))
         chimeCheck = checkbox("Play a sound when speech stops", #selector(save))
+        hotkeyStopsCheck = checkbox("Speak hotkey stops speech instead of reading a new selection", #selector(save))
         stack.addArrangedSubview(panelCheck)
         stack.addArrangedSubview(chimeCheck)
+        stack.addArrangedSubview(hotkeyStopsCheck)
 
         sentences = NSStepper()
         sentences.minValue = 1
@@ -261,6 +264,7 @@ final class SettingsWindowController: NSWindowController {
         loginStatus.stringValue = LaunchAtLogin.statusText
         panelCheck.state = settings.showStatusPanel ? .on : .off
         chimeCheck.state = settings.playSoundOnStop ? .on : .off
+        hotkeyStopsCheck.state = settings.hotkeyStopsSpeech ? .on : .off
         sentences.integerValue = settings.clampedExplainSentences
         sentenceLabel.stringValue = "\(settings.clampedExplainSentences)"
         audiencePopup.selectItem(at: ExplainAudience.allCases.firstIndex(of: settings.explainAudience) ?? 0)
@@ -370,6 +374,7 @@ final class SettingsWindowController: NSWindowController {
             settings.audioDeviceUID = devicePopup.selectedItem?.representedObject as? String ?? ""
             settings.showStatusPanel = panelCheck.state == .on
             settings.playSoundOnStop = chimeCheck.state == .on
+            settings.hotkeyStopsSpeech = hotkeyStopsCheck.state == .on
             settings.explainSentenceCount = sentences.integerValue
             settings.explainAudience = ExplainAudience.allCases[max(0, audiencePopup.indexOfSelectedItem)]
             let model = chatField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
