@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-transparent.png">
-    <img src="assets/logo.png" alt="Dynamite TTS" width="320">
-  </picture>
+  <img src="assets/logo-transparent.png" alt="Dynamite TTS" width="320">
 </p>
 
 <p align="center">
@@ -31,12 +28,6 @@ Summary and Explain use a small chat model running locally in [Lemonade Server](
 - **A tray icon that shows what's happening.** Grey when ready, orange while thinking, blue while speaking, with the fuse lit only while it's busy.
 - **Respectful of your clipboard.** On Windows and macOS anything the app copies to read the highlight is put back; on Linux the clipboard is never touched.
 - **Private by design.** Text is never sent anywhere, and the log records timings only, never what was read.
-
-<p align="center">
-  <img src="docs/images/status-minimal-speaking.png" alt="Minimal status pill" height="32">
-  <img src="docs/images/status-standard-speaking.png" alt="Standard status pill" height="52">
-  <img src="docs/images/status-detailed-working.png" alt="Detailed status pill while summarizing" height="72">
-</p>
 
 ## Install
 

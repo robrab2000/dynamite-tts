@@ -10,7 +10,8 @@
 //!   state (grey when ready, orange while working, the logo's blue while speaking) and the
 //!   fuse is lit only while working or speaking.
 //! - assets/logo-transparent.png: the whole logo (with the wordmark) on transparency, for the
-//!   README.
+//!   README. A soft dark outline behind the wordmark keeps the white lettering readable on a
+//!   light page; on a dark one it disappears into the background.
 //! - assets/icons/app.png (512 px), app.ico and AppIcon.icns: the graphic on a dark rounded
 //!   square, for the executable, the installer, the macOS Dock and the Linux launcher.
 
@@ -22,6 +23,11 @@ use image::{Rgba, RgbaImage, imageops};
 const GRAPHIC: (u32, u32, u32, u32) = (400, 110, 1120, 1035);
 /// Background pixels are at most this bright; the cut-out fades them to transparent.
 const BACKGROUND: f32 = 48.0;
+/// The wordmark starts below this row of the 2000 px logo; the outline is drawn there only.
+const WORDMARK_TOP: u32 = 1150;
+/// The wordmark's outline: its colour, its opacity, how far it reaches (px) and how far its edge
+/// softens (px). A faint soft grey, so the letters get an edge on white without looking stroked.
+const OUTLINE: ([u8; 3], f32, f32, f32) = ([60, 66, 80], 0.55, 2.0, 6.0);
 
 /// How the tray recolours the bubble.s waveform and sound waves for each state.
 #[derive(Clone, Copy)]
@@ -61,7 +67,9 @@ fn main() {
         .unwrap();
 
     // The whole logo on transparency, for the README; trimmed to the artwork with a small margin.
-    pad(&trim(&cut_out(&logo, true)), 0.03).save("assets/logo-transparent.png").unwrap();
+    pad(&trim(&outline_wordmark(&cut_out(&logo, true))), 0.03)
+        .save("assets/logo-transparent.png")
+        .unwrap();
 
     let app = app_icon(&graphic, 1024);
     resize(&app, 512).save(out.join("app.png")).unwrap();
@@ -158,6 +166,66 @@ fn cut_out(img: &RgbaImage, holes: bool) -> RgbaImage {
                 *p = Rgba([c(p.0[0]), c(p.0[1]), c(p.0[2]), (a * 255.0) as u8]);
             }
         }
+    }
+    out
+}
+
+/// Draws a soft dark outline behind the wordmark, so its white letters are readable on a light
+/// background as well as a dark one. The outline follows the distance from the lettering: full
+/// strength out to `OUTLINE.2` px, then fading over `OUTLINE.3` px. The graphic above the wordmark is
+/// left alone.
+fn outline_wordmark(img: &RgbaImage) -> RgbaImage {
+    let (w, h) = img.dimensions();
+    let (color, opacity, reach, soft) = OUTLINE;
+    // Chamfer (3-4) distance from the nearest opaque wordmark pixel, in thirds of a pixel.
+    let far = u32::MAX / 2;
+    let mut dist = vec![far; (w * h) as usize];
+    for (x, y, p) in img.enumerate_pixels() {
+        if y >= WORDMARK_TOP && p.0[3] > 128 {
+            dist[(y * w + x) as usize] = 0;
+        }
+    }
+    let at = |d: &Vec<u32>, x: i64, y: i64| -> u32 {
+        if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 { far } else { d[(y as u32 * w + x as u32) as usize] }
+    };
+    for y in 0..h as i64 {
+        for x in 0..w as i64 {
+            let d = dist[(y as u32 * w + x as u32) as usize]
+                .min(at(&dist, x - 1, y) + 3)
+                .min(at(&dist, x, y - 1) + 3)
+                .min(at(&dist, x - 1, y - 1) + 4)
+                .min(at(&dist, x + 1, y - 1) + 4);
+            dist[(y as u32 * w + x as u32) as usize] = d;
+        }
+    }
+    for y in (0..h as i64).rev() {
+        for x in (0..w as i64).rev() {
+            let d = dist[(y as u32 * w + x as u32) as usize]
+                .min(at(&dist, x + 1, y) + 3)
+                .min(at(&dist, x, y + 1) + 3)
+                .min(at(&dist, x + 1, y + 1) + 4)
+                .min(at(&dist, x - 1, y + 1) + 4);
+            dist[(y as u32 * w + x as u32) as usize] = d;
+        }
+    }
+    let mut out = img.clone();
+    for (x, y, p) in out.enumerate_pixels_mut() {
+        if y + (soft as u32) + (reach as u32) < WORDMARK_TOP {
+            continue;
+        }
+        let d = dist[(y * w + x) as usize] as f32 / 3.0;
+        let halo = ((reach + soft - d) / soft).clamp(0.0, 1.0) * opacity;
+        if halo <= 0.0 {
+            continue;
+        }
+        // The outline sits under the artwork: artwork over halo.
+        let a = p.0[3] as f32 / 255.0;
+        let out_a = a + halo * (1.0 - a);
+        for c in 0..3 {
+            let v = (p.0[c] as f32 * a + color[c] as f32 * halo * (1.0 - a)) / out_a.max(1e-3);
+            p.0[c] = v.round().min(255.0) as u8;
+        }
+        p.0[3] = (out_a * 255.0).round() as u8;
     }
     out
 }
