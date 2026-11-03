@@ -84,10 +84,30 @@ jobs:
     needs: [windows, macos, linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
+      - name: Write the release notes
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          # This tag's section of CHANGELOG.md, without its heading.
+          awk -v tag="## ${tag}" '$0 == tag {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "_No CHANGELOG.md entry for ${tag}._" > notes.md
+          fi
+          cat >> notes.md <<NOTES
+
+          ## Install
+          - **Windows 10/11 (64-bit):** run \`DynamiteTts-Setup-${tag}.exe\` (portable: the \`win-x64\` zip).
+          - **macOS 14+ (Apple Silicon):** unzip \`DynamiteTTS-macos-arm64-${tag}.zip\`, move DynamiteTTS.app to Applications, open it, and allow it under Privacy & Security → Accessibility.
+          - **Linux (Ubuntu 22.04+):** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
+
+          Builds are not code-signed yet, so SmartScreen and Gatekeeper may ask you to confirm the first launch. x86-64 builds need an AVX2 CPU. The Phonon English model is bundled, so Verbatim speech works offline; Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai). See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for details.
+          NOTES
+          sed -i 's/^          //' notes.md
+          cat notes.md
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -95,20 +115,8 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           ls -la artifacts
-          notes="## What's new
-          _(Edit this section after publish with the headline features for this release.)_
-
-          ## Install
-          - **Windows:** \`DynamiteTts-Setup-${tag}.exe\` installs to \`%LocalAppData%\Programs\DynamiteTTS\` (portable: the \`win-x64\` zip).
-          - **macOS (Apple Silicon):** unzip \`DynamiteTTS-macos-arm64-${tag}.zip\` and move DynamiteTTS.app to Applications, then allow it under Privacy & Security → Accessibility.
-          - **Linux:** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
-
-          ## Notes
-          - Builds are unsigned; SmartScreen and Gatekeeper may warn.
-          - x86-64 builds need an AVX2 (x86-64-v3) CPU.
-          - The Phonon model is bundled, so Verbatim speech works offline. Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai)."
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
-            gh release create "$tag" artifacts/* --title "Dynamite TTS $tag" --notes "$notes"
+            gh release create "$tag" artifacts/* --title "Dynamite TTS $tag" --notes-file notes.md
           fi
