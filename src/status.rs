@@ -398,8 +398,11 @@ mod pill {
             }
             if let Some(monitor) = self.window.current_monitor().or_else(|| self.window.primary_monitor()) {
                 let (mpos, msize) = (monitor.position(), monitor.size());
-                // Below the menu bar on macOS; just under the top edge on Windows.
-                let top = if cfg!(target_os = "macos") { 41.0 } else { 16.0 } * monitor.scale_factor();
+                // A little below the menu bar (and the notch) on macOS; just under the top edge on Windows.
+                #[cfg(target_os = "macos")]
+                let top = (macos::menu_bar_height().unwrap_or(37.0) + 6.0) * monitor.scale_factor();
+                #[cfg(windows)]
+                let top = 16.0 * monitor.scale_factor();
                 let x = mpos.x + (msize.width as i32 - size.0 as i32) / 2;
                 self.window.set_outer_position(PhysicalPosition::new(x, mpos.y + top as i32));
             }
@@ -560,6 +563,7 @@ mod pill {
 
     #[cfg(target_os = "macos")]
     mod macos {
+        use objc2::encode::{Encode, Encoding};
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};
         use tao::platform::macos::WindowExtMacOS;
@@ -567,6 +571,55 @@ mod pill {
 
         /// NSStatusWindowLevel: above normal and floating windows.
         const STATUS_LEVEL: isize = 25;
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct CGPoint {
+            x: f64,
+            y: f64,
+        }
+
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct CGSize {
+            width: f64,
+            height: f64,
+        }
+
+        /// NSRect, which is CGRect on 64-bit macOS.
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct CGRect {
+            origin: CGPoint,
+            size: CGSize,
+        }
+
+        // SAFETY: the layouts match CoreGraphics' (two doubles; a point and a size).
+        unsafe impl Encode for CGPoint {
+            const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+        }
+        unsafe impl Encode for CGSize {
+            const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+        }
+        unsafe impl Encode for CGRect {
+            const ENCODING: Encoding = Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+        }
+
+        /// The menu bar's height on the main screen, in points (taller on Macs with a notch).
+        pub fn menu_bar_height() -> Option<f64> {
+            // SAFETY: NSScreen.mainScreen, frame and visibleFrame exist on every supported macOS;
+            // the screen may be null (headless), which is checked.
+            unsafe {
+                let screen: *mut AnyObject = msg_send![class!(NSScreen), mainScreen];
+                if screen.is_null() {
+                    return None;
+                }
+                let frame: CGRect = msg_send![screen, frame];
+                let visible: CGRect = msg_send![screen, visibleFrame];
+                let height = (frame.origin.y + frame.size.height) - (visible.origin.y + visible.size.height);
+                (height.is_finite() && height >= 0.0).then_some(height)
+            }
+        }
 
         fn ns_window(window: &Window) -> Option<*mut AnyObject> {
             let w = window.ns_window() as *mut AnyObject;

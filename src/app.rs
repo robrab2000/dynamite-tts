@@ -64,6 +64,8 @@ struct App {
     preview_until: Option<Instant>,
     /// When the status pill wants its next animation frame.
     status_frame: Option<Instant>,
+    /// The mode of the current request (the CLI and "Test voice" always read verbatim).
+    speaking_mode: SpeakMode,
     capturing: bool,
     settings_window: Option<Child>,
 }
@@ -118,6 +120,7 @@ pub fn run(initial: Initial, _lock: control::InstanceLock) -> ! {
         notice_until: None,
         preview_until: None,
         status_frame: None,
+        speaking_mode: SpeakMode::Verbatim,
         capturing: false,
         settings_window: None,
     };
@@ -256,6 +259,7 @@ impl App {
                     }
                     Some(text) => {
                         let mode = self.settings.speak_mode;
+                        self.speaking_mode = mode;
                         let context = (mode == SpeakMode::Explain && text::is_short_selection(&text))
                             .then(|| text::normalize_context(&text, capture.context.as_deref()))
                             .flatten();
@@ -301,6 +305,7 @@ impl App {
     }
 
     fn speak_text(&mut self, text: &str) {
+        self.speaking_mode = SpeakMode::Verbatim;
         if let Some(n) = self.speech.speak(text, None, &self.settings, SpeakMode::Verbatim) {
             self.notice(&n);
         }
@@ -434,7 +439,7 @@ impl App {
     /// The detailed style's second line while busy.
     fn status_detail(&self) -> String {
         let hint = if cfg!(target_os = "linux") { "press the shortcut to stop" } else { "click to stop" };
-        format!("{} mode · {hint}", self.settings.speak_mode.title())
+        format!("{} mode · {hint}", self.speaking_mode.title())
     }
 
     /// After a notice or a preview: back to the current phase, or fade out.
@@ -453,6 +458,7 @@ impl App {
         if self.speech.is_busy() {
             return;
         }
+        self.speaking_mode = self.settings.speak_mode;
         let detail = self.status_detail();
         if let Some(s) = self.status.as_mut() {
             s.show("Speaking", Kind::Speaking, Some(&detail));
