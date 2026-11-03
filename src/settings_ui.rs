@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Stroke, Vec2};
 
 use crate::hotkey::{Hotkey, canonical_key};
-use crate::settings::{ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, Store};
+use crate::settings::{ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, StatusStyle, Store};
 use crate::{audio, autostart, control, lemonade, paths, voices};
 
 const SAMPLE: &str = "Hello! This is how Dynamite TTS sounds with these settings.";
@@ -331,7 +331,7 @@ impl SettingsApp {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             if self.icon.is_none() {
-                self.icon = crate::tray::decode(include_bytes!("../assets/icons/active.png")).map(|(rgba, w, h)| {
+                self.icon = crate::tray::decode(include_bytes!("../assets/icons/speaking.png")).map(|(rgba, w, h)| {
                     let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                     ui.ctx().load_texture("app-icon", image, egui::TextureOptions::LINEAR)
                 });
@@ -623,18 +623,32 @@ impl SettingsApp {
     }
 
     fn general_page(&mut self, ui: &mut egui::Ui) {
+        section_label(ui, if cfg!(target_os = "linux") { "Status notifications" } else { "Status display" });
+        card(ui, |ui| {
+            segmented(ui, &mut self.settings.status_style, &StatusStyle::ALL.map(|s| (s, s.title())));
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Label::new(RichText::new(status_style_hint(self.settings.status_style)).small().weak())
+                        .wrap(),
+                );
+            });
+            let can_preview = self.settings.status_style != StatusStyle::Off;
+            if ui
+                .add_enabled(can_preview, egui::Button::new("Preview"))
+                .on_hover_text("Show it for a few seconds, as if speaking")
+                .clicked()
+            {
+                self.save_now();
+                if control::send("preview-status").is_none() {
+                    self.shared().message = "Start Dynamite TTS to preview the status display.".into();
+                }
+            }
+        });
+        ui.add_space(8.0);
+        section_label(ui, "General");
         card(ui, |ui| {
             row(ui, "Start at login", "Open Dynamite TTS when you sign in.", |ui| {
                 toggle(ui, &mut self.settings.launch_at_login);
-            });
-            divider(ui);
-            let (title, hint) = if cfg!(target_os = "linux") {
-                ("Status notifications", "Show what Dynamite is doing as a notification.")
-            } else {
-                ("Status pill", "A small pill at the top of the screen while working. Click it to stop.")
-            };
-            row(ui, title, hint, |ui| {
-                toggle(ui, &mut self.settings.show_status);
             });
             divider(ui);
             row(ui, "Stop sound", "A short chime when speech is stopped.", |ui| {
@@ -651,6 +665,23 @@ impl SettingsApp {
             });
             ui.label(RichText::new(paths::log_file().display().to_string()).monospace().small().weak());
         });
+    }
+}
+
+fn status_style_hint(style: StatusStyle) -> &'static str {
+    let linux = cfg!(target_os = "linux");
+    match style {
+        StatusStyle::Off => "Nothing on screen. The tray icon still changes colour while it works.",
+        StatusStyle::Minimal if linux => "Only mode changes and errors, as brief notifications.",
+        StatusStyle::Minimal => {
+            "A small, see-through pill with just the moving bars. Mode changes and errors still show briefly."
+        }
+        StatusStyle::Standard if linux => "A notification showing what it is doing: thinking, speaking, mode changes.",
+        StatusStyle::Standard => {
+            "Moving bars and a short label such as \"Speaking\" or \"Summarizing…\". Click it to stop."
+        }
+        StatusStyle::Detailed if linux => "Like Standard, with the current mode on a second line.",
+        StatusStyle::Detailed => "A larger pill with the current mode and a hint for stopping.",
     }
 }
 

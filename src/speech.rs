@@ -56,6 +56,11 @@ impl Speech {
         self.phase.as_deref()
     }
 
+    /// Current playback loudness (0-1), for the status pill.
+    pub fn level(&self) -> f32 {
+        self.player.level()
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::SeqCst)
     }

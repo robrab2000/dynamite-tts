@@ -21,6 +21,8 @@ use crate::tray::Tray;
 use crate::{autostart, control, log, text};
 
 const NOTICE_TIME: Duration = Duration::from_millis(2500);
+/// How long Settings' "Preview" shows the status pill.
+const PREVIEW_TIME: Duration = Duration::from_millis(3500);
 /// The settings window suspends the shortcuts while it records one; never longer than this.
 const SUSPEND_LIMIT: Duration = Duration::from_secs(30);
 
@@ -58,6 +60,10 @@ struct App {
     status: Option<Status>,
     hotkeys: Hotkeys,
     notice_until: Option<Instant>,
+    /// A status preview from Settings is showing until then.
+    preview_until: Option<Instant>,
+    /// When the status pill wants its next animation frame.
+    status_frame: Option<Instant>,
     capturing: bool,
     settings_window: Option<Child>,
 }
@@ -110,6 +116,8 @@ pub fn run(initial: Initial, _lock: control::InstanceLock) -> ! {
         status: None,
         hotkeys: Hotkeys { manager: None, speak: None, mode: None, bound: None, suspended_until: None },
         notice_until: None,
+        preview_until: None,
+        status_frame: None,
         capturing: false,
         settings_window: None,
     };
@@ -163,6 +171,9 @@ impl App {
             Err(e) => log!("tray unavailable: {e}"),
         }
         self.status = Status::new(target);
+        if let Some(s) = self.status.as_mut() {
+            s.set_style(self.settings.status_style);
+        }
         #[cfg(not(target_os = "linux"))]
         match GlobalHotKeyManager::new() {
             Ok(m) => self.hotkeys.manager = Some(m),
@@ -271,6 +282,7 @@ impl App {
             }
             "suspend-hotkeys" => self.suspend_hotkeys(),
             "resume-hotkeys" => self.resume_hotkeys(),
+            "preview-status" => self.preview_status(),
             "ping" => {
                 let open = self.settings_open();
                 return format!(
@@ -349,10 +361,8 @@ impl App {
             }
         }
         self.bind_hotkeys();
-        if !self.settings.show_status {
-            if let Some(s) = self.status.as_mut() {
-                s.hide();
-            }
+        if let Some(s) = self.status.as_mut() {
+            s.set_style(self.settings.status_style);
         }
     }
 
@@ -421,34 +431,59 @@ impl App {
         self.bind_hotkeys();
     }
 
+    /// The detailed style's second line while busy.
+    fn status_detail(&self) -> String {
+        let hint = if cfg!(target_os = "linux") { "press the shortcut to stop" } else { "click to stop" };
+        format!("{} mode · {hint}", self.settings.speak_mode.title())
+    }
+
+    /// After a notice or a preview: back to the current phase, or fade out.
+    fn restore_status(&mut self) {
+        let phase = self.speech.phase().map(str::to_string);
+        let detail = self.status_detail();
+        match (phase, self.status.as_mut()) {
+            (Some(p), Some(s)) => s.show(&p, phase_kind(&p), Some(&detail)),
+            (None, Some(s)) => s.hide(),
+            _ => {}
+        }
+    }
+
+    /// Shows the pill in the chosen style for a few seconds, as if speaking (from Settings).
+    fn preview_status(&mut self) {
+        if self.speech.is_busy() {
+            return;
+        }
+        let detail = self.status_detail();
+        if let Some(s) = self.status.as_mut() {
+            s.show("Speaking", Kind::Speaking, Some(&detail));
+            self.notice_until = None;
+            self.preview_until = Some(Instant::now() + PREVIEW_TIME);
+        }
+    }
+
     fn show_phase(&mut self, phase: Option<&str>) {
         log!("phase: {}", phase.unwrap_or("Ready"));
         if let Some(t) = self.tray.as_mut() {
             t.set_phase(phase);
         }
+        let detail = self.status_detail();
         let Some(status) = self.status.as_mut() else { return };
-        if !self.settings.show_status {
-            status.hide();
-            return;
-        }
         match phase {
             Some(p) => {
                 self.notice_until = None;
-                status.show(p, if p == "Speaking" { Kind::Speaking } else { Kind::Working });
+                self.preview_until = None;
+                status.show(p, phase_kind(p), Some(&detail));
             }
             // A notice that just appeared (say, an error) outlives the phase ending.
-            None if self.notice_until.is_some() => {}
+            None if self.notice_until.is_some() || self.preview_until.is_some() => {}
             None => status.hide(),
         }
     }
 
     fn notice(&mut self, text: &str) {
         log!("notice: {text}");
-        if !self.settings.show_status {
-            return;
-        }
         if let Some(status) = self.status.as_mut() {
-            status.show(text, Kind::Notice);
+            status.show(text, Kind::Notice, None);
             self.notice_until = Some(Instant::now() + NOTICE_TIME);
         }
     }
@@ -457,22 +492,34 @@ impl App {
         let now = Instant::now();
         if self.notice_until.is_some_and(|t| t <= now) {
             self.notice_until = None;
-            let phase = self.speech.phase().map(str::to_string);
-            match (phase, self.status.as_mut()) {
-                (Some(p), Some(s)) if self.settings.show_status => {
-                    s.show(&p, if p == "Speaking" { Kind::Speaking } else { Kind::Working })
-                }
-                (_, Some(s)) => s.hide(),
-                _ => {}
-            }
+            self.restore_status();
         }
+        if self.preview_until.is_some_and(|t| t <= now) {
+            self.preview_until = None;
+            self.restore_status();
+        }
+        // The preview has no audio, so it borrows a speech-like level.
+        let level = match self.preview_until {
+            Some(until) => {
+                let t = until.saturating_duration_since(now).as_secs_f32();
+                0.12 + 0.08 * (t * 7.0).sin() + 0.05 * (t * 17.0).sin()
+            }
+            None => self.speech.level(),
+        };
+        self.status_frame = self.status.as_mut().and_then(|s| {
+            s.set_level(level);
+            s.tick(now)
+        });
         if self.hotkeys.suspended_until.is_some_and(|t| t <= now) {
             self.resume_hotkeys();
         }
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        [self.notice_until, self.hotkeys.suspended_until].into_iter().flatten().min()
+        [self.notice_until, self.preview_until, self.status_frame, self.hotkeys.suspended_until]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     fn settings_open(&mut self) -> bool {
@@ -514,4 +561,8 @@ impl App {
         control::cleanup();
         *flow = ControlFlow::Exit;
     }
+}
+
+fn phase_kind(phase: &str) -> Kind {
+    if phase == "Speaking" { Kind::Speaking } else { Kind::Working }
 }

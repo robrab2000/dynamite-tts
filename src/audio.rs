@@ -30,6 +30,8 @@ struct State {
     prev: f32,
     last_active: Instant,
     broken: bool,
+    /// Loudness of the last block the device played (RMS, 0-1), for the status pill's bars.
+    level: f32,
 }
 
 impl State {
@@ -74,6 +76,7 @@ impl Player {
             prev: 0.0,
             last_active: Instant::now(),
             broken: false,
+            level: 0.0,
         }));
         let (tx, rx) = mpsc::channel();
         let thread_state = state.clone();
@@ -165,6 +168,12 @@ impl Player {
             return (false, true);
         }
         (s.played > 0, s.finished && s.queue.is_empty())
+    }
+
+    /// How loud playback is right now (RMS of the last block, 0-1).
+    pub fn level(&self) -> f32 {
+        let s = self.lock();
+        if s.queue.is_empty() && s.finished { 0.0 } else { s.level }
     }
 
     pub fn is_current(&self, session: Session) -> bool {
@@ -279,10 +288,12 @@ where
             move |data: &mut [T], _| {
                 let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
                 let mut played = 0u64;
+                let mut energy = 0.0f32;
                 for frame in data.chunks_mut(channels) {
                     let v = match s.queue.pop_front() {
                         Some(v) => {
                             played += 1;
+                            energy += v * v;
                             v
                         }
                         None => 0.0,
@@ -291,6 +302,7 @@ where
                     frame.iter_mut().for_each(|o| *o = sample);
                 }
                 s.played += played;
+                s.level = if played == 0 { 0.0 } else { (energy / played as f32).sqrt() };
             },
             move |e| {
                 log!("audio: stream error: {e}");

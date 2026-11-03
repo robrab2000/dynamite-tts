@@ -48,7 +48,8 @@ How Linux differs:
 | `Ctrl+Shift+S` | Read the highlight. While speech is playing it stops instead; turn that off in Settings to have it read a new highlight. |
 | `Ctrl+Shift+M` | Cycle Verbatim → Summary → Explain. |
 | Tray menu | Stop, Mode, Settings…, Quit. Double-click the tray icon on Windows to open Settings. |
-| Status pill | Top centre on Windows and macOS, showing *Synthesizing…*, *Speaking*, *Summarizing…* and so on. It never takes focus. Click it to stop. |
+| Status pill | Top centre on Windows and macOS. It fades in and out, never takes focus, and shows moving bars: an orange ripple while it thinks and blue bars that follow the voice while it speaks. Click it to stop. Settings → General → Status display picks Off, Minimal (bars only, see-through), Standard (bars and a label) or Detailed (with the mode); **Preview** shows it. |
+| Tray icon | Grey when ready, orange while thinking, blue while speaking; the fuse is lit only while it works. |
 
 **Explain** opens by naming the selection and adapts to short terms versus longer passages. Settings controls its length (1–8 sentences) and audience (Technical or General). On macOS, when the highlight is short, the surrounding text of the focused field is sent with it so ambiguous words get the right sense.
 

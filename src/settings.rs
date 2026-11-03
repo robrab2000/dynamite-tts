@@ -77,6 +77,39 @@ impl ExplainAudience {
     }
 }
 
+/// How much the status pill (a notification on Linux) shows while the app works.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StatusStyle {
+    /// Nothing on screen; the tray icon still changes.
+    Off,
+    /// A small translucent pill with only the animated bars.
+    Minimal,
+    /// Bars and a short label.
+    #[default]
+    Standard,
+    /// Larger, with the mode and a hint under the label.
+    Detailed,
+}
+
+impl StatusStyle {
+    pub const ALL: [StatusStyle; 4] =
+        [StatusStyle::Off, StatusStyle::Minimal, StatusStyle::Standard, StatusStyle::Detailed];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            StatusStyle::Off => "Off",
+            StatusStyle::Minimal => "Minimal",
+            StatusStyle::Standard => "Standard",
+            StatusStyle::Detailed => "Detailed",
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.title().eq_ignore_ascii_case(s.trim()))
+    }
+}
+
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:13305";
 pub const DEFAULT_CHAT_MODEL: &str = "Llama-3.2-1B-Instruct-GGUF";
 
@@ -96,7 +129,7 @@ pub struct Settings {
     /// Output device name; empty = the system default.
     pub audio_device: String,
     pub launch_at_login: bool,
-    pub show_status: bool,
+    pub status_style: StatusStyle,
     pub play_sound_on_stop: bool,
     pub hotkey_stops_speech: bool,
     pub explain_sentence_count: u32,
@@ -117,7 +150,7 @@ impl Default for Settings {
             mode_hotkey: hotkey::DEFAULT_MODE.into(),
             audio_device: String::new(),
             launch_at_login: false,
-            show_status: true,
+            status_style: StatusStyle::Standard,
             play_sound_on_stop: true,
             hotkey_stops_speech: true,
             explain_sentence_count: 3,
@@ -225,8 +258,13 @@ impl Settings {
         if let Some(v) = f.bool(&["launch_at_login", "RunAtStartup"]) {
             s.launch_at_login = v;
         }
-        if let Some(v) = f.bool(&["show_status", "show_status_notifications", "ShowStatusBubble", "showStatusPanel"]) {
-            s.show_status = v;
+        if let Some(v) = f.string(&["status_style"]).and_then(|v| StatusStyle::parse(&v)) {
+            s.status_style = v;
+        } else if f.bool(&["show_status", "show_status_notifications", "ShowStatusBubble", "showStatusPanel"])
+            == Some(false)
+        {
+            // Older settings had an on/off switch.
+            s.status_style = StatusStyle::Off;
         }
         if let Some(v) = f.bool(&["play_sound_on_stop"]) {
             s.play_sound_on_stop = v;
@@ -383,7 +421,7 @@ mod tests {
         }));
         assert_eq!(s.speak_mode, SpeakMode::Summary);
         assert_eq!(s.speak_hotkey, "Ctrl+Alt+R");
-        assert!(!s.show_status);
+        assert_eq!(s.status_style, StatusStyle::Off);
         assert_eq!(s.explain_audience, ExplainAudience::General);
     }
 
@@ -406,7 +444,7 @@ mod tests {
         assert_eq!(s.speak_mode, SpeakMode::Explain);
         assert_eq!(s.chat_model, "Qwen2.5-0.5B-Instruct");
         assert!(s.launch_at_login);
-        assert!(!s.show_status);
+        assert_eq!(s.status_style, StatusStyle::Off);
         assert_eq!(s.phonon_voice, "Easton");
         assert_eq!(s.audio_device, "", "an endpoint id is not a device name");
         let stored =
