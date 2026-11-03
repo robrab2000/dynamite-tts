@@ -331,7 +331,7 @@ impl SettingsApp {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             if self.icon.is_none() {
-                self.icon = crate::tray::decode(include_bytes!("../assets/icons/idle.png")).map(|(rgba, w, h)| {
+                self.icon = crate::tray::decode(include_bytes!("../assets/icons/active.png")).map(|(rgba, w, h)| {
                     let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                     ui.ctx().load_texture("app-icon", image, egui::TextureOptions::LINEAR)
                 });

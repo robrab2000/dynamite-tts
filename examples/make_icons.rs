@@ -39,7 +39,7 @@ fn main() {
     let out = Path::new("assets/icons");
 
     let tray = resize(&pad(&graphic, 0.04), 128);
-    recolor_waves(&tray, Waves::Grey).save(out.join("idle.png")).unwrap();
+    unlit(&recolor_waves(&tray, Waves::Grey)).save(out.join("idle.png")).unwrap();
     recolor_waves(&tray, Waves::Blue).save(out.join("active.png")).unwrap();
     recolor_waves(&tray, Waves::Green).save(out.join("speaking.png")).unwrap();
 
@@ -150,6 +150,35 @@ fn resize(img: &RgbaImage, side: u32) -> RgbaImage {
             if let Some(v) = (p.0[c] as u32 * 255 + a / 2).checked_div(a) {
                 p.0[c] = v.min(255) as u8;
             }
+        }
+    }
+    out
+}
+
+/// Puts the spark out for the ready icon. It finds the spark by its bright yellow core (top
+/// right), then clears everything within reach of it (star, glow, embers) except the dim fuse.
+fn unlit(img: &RgbaImage) -> RgbaImage {
+    let mut out = img.clone();
+    let (w, h) = out.dimensions();
+    let in_corner = |x: u32, y: u32| x as f32 > w as f32 * 0.6 && (y as f32) < h as f32 * 0.42;
+    let (mut sx, mut sy, mut n) = (0.0, 0.0, 0.0);
+    for (x, y, p) in img.enumerate_pixels() {
+        let (hue, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
+        if in_corner(x, y) && p.0[3] > 128 && (35.0..=65.0).contains(&hue) && s > 0.5 && v > 0.85 {
+            (sx, sy, n) = (sx + x as f32, sy + y as f32, n + 1.0);
+        }
+    }
+    assert!(n > 0.0, "no spark found");
+    let (cx, cy, reach) = (sx / n, sy / n, w as f32 * 0.19);
+    for (x, y, p) in out.enumerate_pixels_mut() {
+        let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+        if d > reach || p.0[3] == 0 {
+            continue;
+        }
+        let (_, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
+        let fuse = v < 0.5 && s < 0.45;
+        if !fuse {
+            *p = Rgba([0, 0, 0, 0]);
         }
     }
     out
