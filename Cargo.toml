@@ -32,6 +32,7 @@ tao = "0.37"
 tray-icon = "0.26"
 global-hotkey = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
+rfd = "0.17"
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 
 # On Apple Silicon xn hands its f32 matrix products to the Accelerate framework (AMX-backed

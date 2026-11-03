@@ -467,19 +467,44 @@ impl SettingsApp {
                 });
             });
             divider(ui);
-            row(
-                ui,
-                "Model folder",
-                "Leave empty for the bundled English model, or pick a Phonon 40M checkpoint.",
-                |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings.phonon_model_dir)
-                            .hint_text("Built-in (Phonon 31M English)")
-                            .desired_width(CONTROL_WIDTH),
-                    );
-                },
-            );
+            self.model_folder_row(ui);
         });
+    }
+
+    /// The Phonon checkpoint folder: built-in by default, or one picked with the system folder dialog
+    /// (for the gated multilingual 40M checkpoints).
+    fn model_folder_row(&mut self, ui: &mut egui::Ui) {
+        let dir = self.settings.phonon_model_dir.trim().to_string();
+        let (hint, valid) = if dir.is_empty() {
+            ("Built-in Phonon 31M English. Choose a folder to use a Phonon 40M checkpoint instead.".to_string(), true)
+        } else {
+            let path = std::path::Path::new(&dir);
+            let name = path.file_name().map_or(dir.clone(), |n| n.to_string_lossy().into_owned());
+            (format!("Using {name}."), crate::phonon::is_checkpoint(path))
+        };
+        row(ui, "Model folder", &hint, |ui| {
+            if ui.button("Choose…").clicked() {
+                let mut dialog = rfd::FileDialog::new().set_title("Choose a Phonon model folder");
+                if !dir.is_empty() {
+                    dialog = dialog.set_directory(&dir);
+                }
+                if let Some(picked) = dialog.pick_folder() {
+                    self.settings.phonon_model_dir = picked.display().to_string();
+                }
+            }
+            if !dir.is_empty() && ui.button("Use built-in").clicked() {
+                self.settings.phonon_model_dir.clear();
+            }
+        });
+        if !dir.is_empty() {
+            ui.label(RichText::new(&dir).monospace().small().weak());
+            if !valid {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    RichText::new("This folder has no Phonon checkpoint: it needs config.json, tokenizer.json and model.q8.gguf or model.safetensors. Speech will fail until you choose a valid folder or switch back to the built-in model.").small(),
+                );
+            }
+        }
     }
 
     fn modes_page(&mut self, ui: &mut egui::Ui) {
