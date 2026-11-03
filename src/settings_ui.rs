@@ -239,6 +239,7 @@ impl SettingsApp {
         let modified = std::fs::metadata(raise_file()).and_then(|m| m.modified()).ok();
         if modified.is_some() && modified != self.raise_seen {
             self.raise_seen = modified;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
@@ -843,7 +844,8 @@ impl eframe::App for SettingsApp {
         self.record_hotkey(&ctx);
         self.window(ui);
         self.save_if_due();
-        ctx.request_repaint_after(Duration::from_millis(if self.dirty_since.is_some() { 100 } else { 500 }));
+        // Often enough to notice a raise request from the tray promptly.
+        ctx.request_repaint_after(Duration::from_millis(if self.dirty_since.is_some() { 100 } else { 250 }));
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

@@ -224,9 +224,7 @@ impl App {
             }
             UserEvent::Menu(e) => {
                 let Some(tray) = &self.tray else { return };
-                if e.id == tray.stop_id {
-                    self.stop(true);
-                } else if e.id == tray.mode_id {
+                if e.id == tray.mode_id {
                     self.cycle_mode();
                 } else if e.id == tray.settings_id {
                     self.open_settings();
@@ -541,7 +539,11 @@ impl App {
 
     fn open_settings(&mut self) {
         if self.settings_open() {
-            // The window process raises itself when it gets this.
+            // The window raises itself when it sees this. Windows and macOS only let a process
+            // that the user just interacted with hand focus over, and that is this one.
+            if let Some(pid) = self.settings_window.as_ref().map(|c| c.id()) {
+                allow_focus(pid);
+            }
             let _ = crate::settings_ui::raise();
             return;
         }
@@ -572,3 +574,33 @@ impl App {
 fn phase_kind(phase: &str) -> Kind {
     if phase == "Speaking" { Kind::Speaking } else { Kind::Working }
 }
+
+/// Lets the process `pid` (the Settings window) take focus from us.
+#[cfg(windows)]
+fn allow_focus(pid: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+    // SAFETY: no preconditions; fails harmlessly if we may not grant it.
+    unsafe { AllowSetForegroundWindow(pid) };
+}
+
+/// Activates the process `pid` (the Settings window), bringing its windows to the front.
+#[cfg(target_os = "macos")]
+fn allow_focus(pid: u32) {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    /// NSApplicationActivateAllWindows.
+    const ALL_WINDOWS: usize = 1;
+    // SAFETY: NSRunningApplication's class method and activateWithOptions: exist on every
+    // supported macOS; a missing process gives nil, which is checked.
+    unsafe {
+        let app: *mut AnyObject =
+            msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid as i32];
+        if !app.is_null() {
+            let _: bool = msg_send![app, activateWithOptions: ALL_WINDOWS];
+        }
+    }
+}
+
+/// Linux desktops decide focus themselves; the window asks for it when raised.
+#[cfg(target_os = "linux")]
+fn allow_focus(_pid: u32) {}

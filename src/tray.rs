@@ -1,4 +1,4 @@
-//! The tray (menu-bar) icon and its menu: Stop, Mode, Settings…, Quit. The icon shows whether
+//! The tray (menu-bar) icon and its menu: Mode, Settings…, Quit. The icon shows whether
 //! the app is ready, working, or speaking.
 
 use tray_icon::menu::{Menu, MenuId, MenuItem, PredefinedMenuItem};
@@ -50,7 +50,6 @@ pub struct Tray {
     icon: TrayIcon,
     look: Look,
     mode: MenuItem,
-    pub stop_id: MenuId,
     pub mode_id: MenuId,
     pub settings_id: MenuId,
     pub quit_id: MenuId,
@@ -58,12 +57,11 @@ pub struct Tray {
 
 impl Tray {
     pub fn new(mode: SpeakMode) -> Result<Tray, String> {
-        let stop = MenuItem::new("Stop", true, None);
         let mode_item = MenuItem::new(mode_label(mode), true, None);
         let settings = MenuItem::new("Settings…", true, None);
         let quit = MenuItem::new("Quit Dynamite TTS", true, None);
         let menu = Menu::new();
-        menu.append_items(&[&stop, &mode_item, &PredefinedMenuItem::separator(), &settings, &quit])
+        menu.append_items(&[&mode_item, &PredefinedMenuItem::separator(), &settings, &quit])
             .map_err(|e| e.to_string())?;
         let mut builder = TrayIconBuilder::new().with_menu(Box::new(menu)).with_tooltip("Dynamite TTS (Ready)");
         if let Some(i) = icon(Look::Idle) {
@@ -73,7 +71,6 @@ impl Tray {
         Ok(Tray {
             icon,
             look: Look::Idle,
-            stop_id: stop.id().clone(),
             mode_id: mode_item.id().clone(),
             settings_id: settings.id().clone(),
             quit_id: quit.id().clone(),
