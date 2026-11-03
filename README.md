@@ -156,6 +156,8 @@ Phonon is now the only voice engine. Kokoro, with its 325 MB model and CUDA supp
 
 ## Building from source
 
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup on each system, the checks CI runs, and the project's rules.
+
 You need [Rust](https://rustup.rs) 1.89 or newer. On Linux, also `pkg-config libgtk-3-dev libasound2-dev`.
 
 ```bash
