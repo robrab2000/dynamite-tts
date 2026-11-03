@@ -43,7 +43,7 @@ pub fn run() -> i32 {
         .map(|(rgba, width, height)| egui::IconData { rgba, width, height });
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Dynamite TTS Settings")
-        .with_inner_size([760.0, 560.0])
+        .with_inner_size([760.0, 660.0])
         .with_min_inner_size([640.0, 440.0]);
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
@@ -997,7 +997,7 @@ mod tests {
             let mut textures = std::collections::HashMap::new();
             for page in Page::ALL {
                 app.page = page;
-                let size = Vec2::new(760.0, 560.0);
+                let size = Vec2::new(760.0, 660.0);
                 let input = || egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
                     ..Default::default()

@@ -112,6 +112,7 @@ impl Speech {
             received_audio: self.received_audio.clone(),
             emit: self.emit.clone(),
             settings: settings.clone(),
+            last_phase: std::sync::Mutex::new(String::new()),
         };
         let spawned = std::thread::Builder::new().name("speech".into()).spawn(move || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run(&clean, context, mode)))
@@ -153,6 +154,8 @@ struct Worker {
     received_audio: Arc<AtomicBool>,
     emit: Emit,
     settings: Settings,
+    /// The last phase reported, so a repeat (say, loading announced twice) isn't sent again.
+    last_phase: std::sync::Mutex<String>,
 }
 
 impl Worker {
@@ -161,7 +164,9 @@ impl Worker {
     }
 
     fn phase(&self, phase: &str) {
-        if self.alive() {
+        let mut last = self.last_phase.lock().unwrap_or_else(|e| e.into_inner());
+        if self.alive() && *last != phase {
+            *last = phase.to_string();
             (self.emit)(Event::Phase(self.generation, Some(phase.to_string())));
         }
     }
