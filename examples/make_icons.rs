@@ -24,8 +24,8 @@ const BACKGROUND: f32 = 48.0;
 enum Waves {
     /// Ready: a quiet slate grey.
     Grey,
-    /// Working: the logo.s own blue.
-    Blue,
+    /// Working: orange, like the spark.
+    Orange,
     /// Speaking: green.
     Green,
 }
@@ -38,10 +38,17 @@ fn main() {
     let graphic = trim(&cut_out(&imageops::crop_imm(&logo, x, y, w, h).to_image()));
     let out = Path::new("assets/icons");
 
-    let tray = resize(&pad(&graphic, 0.04), 128);
-    unlit(&recolor_waves(&tray, Waves::Grey)).save(out.join("idle.png")).unwrap();
-    recolor_waves(&tray, Waves::Blue).save(out.join("active.png")).unwrap();
-    recolor_waves(&tray, Waves::Green).save(out.join("speaking.png")).unwrap();
+    // The spark is removed at full resolution, before shrinking, so its edges are clean.
+    let lit = pad(&graphic, 0.04);
+    let out_cold = unlit(&lit);
+    let preview = Path::new("target/icon-preview");
+    std::fs::create_dir_all(preview).unwrap();
+    for (name, base, waves) in
+        [("idle", &out_cold, Waves::Grey), ("active", &lit, Waves::Orange), ("speaking", &lit, Waves::Green)]
+    {
+        recolor_waves(&resize(base, 128), waves).save(out.join(format!("{name}.png"))).unwrap();
+        recolor_waves(&resize(base, 512), waves).save(preview.join(format!("{name}.png"))).unwrap();
+    }
 
     let app = app_icon(&graphic, 1024);
     resize(&app, 512).save(out.join("app.png")).unwrap();
@@ -156,7 +163,8 @@ fn resize(img: &RgbaImage, side: u32) -> RgbaImage {
 }
 
 /// Puts the spark out for the ready icon. It finds the spark by its bright yellow core (top
-/// right), then clears everything within reach of it (star, glow, embers) except the dim fuse.
+/// right). Around it, only the fuse survives: its dark body plus anything within an outline's
+/// width of it (its highlight and light outline). The star, its outline, glow and embers go.
 fn unlit(img: &RgbaImage) -> RgbaImage {
     let mut out = img.clone();
     let (w, h) = out.dimensions();
@@ -169,15 +177,45 @@ fn unlit(img: &RgbaImage) -> RgbaImage {
         }
     }
     assert!(n > 0.0, "no spark found");
-    let (cx, cy, reach) = (sx / n, sy / n, w as f32 * 0.19);
+    let (cx, cy) = (sx / n, sy / n);
+    let (reach, core) = (w as f32 * 0.19, w as f32 * 0.045);
+    let near_spark = |x: u32, y: u32| ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+    // The fuse's dark, unsaturated body, away from the white-hot tip.
+    let body: Vec<(i32, i32)> = img
+        .enumerate_pixels()
+        .filter(|&(x, y, p)| {
+            let d = near_spark(x, y);
+            let (_, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
+            d <= reach && d >= core && p.0[3] > 200 && v < 0.45 && s < 0.45
+        })
+        .map(|(x, y, _)| (x as i32, y as i32))
+        .collect();
+    // Anything within the outline's width of the body is part of the fuse.
+    let outline = (w as f32 * 0.018).ceil() as i32;
+    let mut keep = vec![false; (w * img.height()) as usize];
+    for &(bx, by) in &body {
+        for dy in -outline..=outline {
+            for dx in -outline..=outline {
+                let (x, y) = (bx + dx, by + dy);
+                if dx * dx + dy * dy <= outline * outline
+                    && x >= 0
+                    && y >= 0
+                    && (x as u32) < w
+                    && (y as u32) < img.height()
+                {
+                    keep[(y as u32 * w + x as u32) as usize] = true;
+                }
+            }
+        }
+    }
     for (x, y, p) in out.enumerate_pixels_mut() {
-        let d = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
-        if d > reach || p.0[3] == 0 {
+        if near_spark(x, y) > reach {
             continue;
         }
-        let (_, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
-        let fuse = v < 0.5 && s < 0.45;
-        if !fuse {
+        // The glowing tip is warm; the fuse never is.
+        let (hue, s, _) = to_hsv(p.0[0], p.0[1], p.0[2]);
+        let warm = (hue <= 75.0 || hue >= 300.0) && s > 0.2;
+        if warm || !keep[(y * w + x) as usize] {
             *p = Rgba([0, 0, 0, 0]);
         }
     }
@@ -185,12 +223,14 @@ fn unlit(img: &RgbaImage) -> RgbaImage {
 }
 
 /// Recolours the blue of the bubble's waveform and sound waves, keeping each pixel's
-/// brightness and the logo's gradient. Nothing else in the graphic is blue: the dynamite is
-/// red, the spark yellow, the bubble white and the fuse a desaturated grey.
+/// brightness and the logo's gradient.
 fn recolor_waves(img: &RgbaImage, waves: Waves) -> RgbaImage {
     let mut out = img.clone();
-    for p in out.pixels_mut() {
-        if p.0[3] == 0 {
+    let (w, h) = out.dimensions();
+    for (x, y, p) in out.enumerate_pixels_mut() {
+        // Only the bubble and its waves (right of and below the dynamite): the band around the
+        // dynamite is a dark blue too.
+        if p.0[3] == 0 || (x as f32) < w as f32 * 0.345 || (y as f32) < h as f32 * 0.44 {
             continue;
         }
         let (h, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
@@ -198,7 +238,7 @@ fn recolor_waves(img: &RgbaImage, waves: Waves) -> RgbaImage {
             continue;
         }
         let (h, s, v) = match waves {
-            Waves::Blue => continue,
+            Waves::Orange => (h - 190.0, s * 0.95, v),
             Waves::Grey => (h, s * 0.12, v * 0.78),
             // Shift by the same amount everywhere so the logo's light-to-dark gradient survives.
             Waves::Green => (h - 85.0, s * 0.95, v * 0.92),
