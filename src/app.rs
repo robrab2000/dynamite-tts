@@ -294,10 +294,18 @@ impl App {
                     if open { "open" } else { "closed" }
                 );
             }
-            other => match other.strip_prefix("speak-text ") {
-                Some(text) => self.speak_text(text),
-                None => return format!("error: unknown command '{other}'"),
-            },
+            other => {
+                if let Some(text) = other.strip_prefix("speak-text ") {
+                    self.speak_text(text);
+                } else if let Some(gains) = other.strip_prefix("set-eq ") {
+                    // Live from Settings while a slider moves; the saved settings follow on reload.
+                    let g: Vec<f32> = gains.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                    let [low, mid, high] = g[..] else { return "error: set-eq takes three gains in dB".into() };
+                    self.speech.set_eq(low, mid, high);
+                } else {
+                    return format!("error: unknown command '{other}'");
+                }
+            }
         }
         "ok".into()
     }

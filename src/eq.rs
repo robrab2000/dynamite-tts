@@ -1,10 +1,11 @@
 //! A three-band tone control for speech: a low shelf (body), a peaking mid (presence) and a
 //! high shelf (air).
 //!
-//! Each band is one biquad (RBJ audio-EQ cookbook) in transposed direct form II, run on the
-//! 24 kHz speech before it is resampled for the device. That is 15 multiply-adds per sample
-//! and no added latency: every output sample depends only on the current and past inputs. A
-//! flat setting skips the filters entirely.
+//! Each band is one biquad (RBJ audio-EQ cookbook) in transposed direct form II. The player runs
+//! them in the audio callback, on each sample as the device plays it, so a change is heard within
+//! one device buffer, even mid-sentence. That is 15 multiply-adds per sample and no added latency:
+//! every output sample depends only on the current and past inputs. A flat setting skips the
+//! filters entirely.
 
 use std::f64::consts::PI;
 
@@ -101,6 +102,16 @@ impl Eq {
         Eq::new(rate, 0.0, 0.0, 0.0)
     }
 
+    /// Changes the gains (or rate) while playing. The filters keep their memory, so a change in
+    /// the middle of a sentence doesn't click.
+    pub fn retune(&mut self, rate: u32, low_db: f32, mid_db: f32, high_db: f32) {
+        let mut next = Eq::new(rate, low_db, mid_db, high_db);
+        for (new, old) in next.bands.iter_mut().zip(&self.bands) {
+            (new.z1, new.z2) = (old.z1, old.z2);
+        }
+        *self = next;
+    }
+
     /// Clears the filters' memory (a new utterance should not inherit the last one's tail).
     pub fn reset(&mut self) {
         for b in &mut self.bands {
@@ -109,14 +120,21 @@ impl Eq {
         }
     }
 
-    /// Filters `samples` in place.
-    pub fn process(&mut self, samples: &mut [f32]) {
+    /// Filters one sample (the audio callback runs this per sample, so changes apply at once).
+    #[inline]
+    pub fn process_one(&mut self, x: f32) -> f32 {
         if self.flat {
-            return;
+            return x;
         }
         let [low, mid, high] = &mut self.bands;
+        high.process(mid.process(low.process(x * self.gain)))
+    }
+
+    /// Filters `samples` in place (for tests and the benchmark).
+    #[cfg(test)]
+    pub fn process(&mut self, samples: &mut [f32]) {
         for s in samples {
-            *s = high.process(mid.process(low.process(*s * self.gain)));
+            *s = self.process_one(*s);
         }
     }
 }
@@ -193,6 +211,24 @@ mod tests {
             seconds / took
         );
         assert!(block[0].is_finite());
+    }
+
+    #[test]
+    fn retuning_mid_stream_keeps_the_filter_memory() {
+        let tone: Vec<f32> = (0..2400).map(|i| (i as f32 * 0.05).sin() * 0.3).collect();
+        let mut live = Eq::new(RATE, 0.0, 0.0, 6.0);
+        let mut a = tone.clone();
+        live.process(&mut a[..1200]);
+        live.retune(RATE, 0.0, 0.0, 6.0); // same gains: retuning must be seamless
+        live.process(&mut a[1200..]);
+        let mut b = tone.clone();
+        Eq::new(RATE, 0.0, 0.0, 6.0).process(&mut b);
+        assert!(a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-6), "no jump at the retune");
+        // New gains do take effect.
+        live.retune(RATE, 0.0, 0.0, -6.0);
+        let mut c = tone.clone();
+        live.process(&mut c);
+        assert!(c.iter().zip(&b).any(|(x, y)| (x - y).abs() > 1e-3));
     }
 
     #[test]

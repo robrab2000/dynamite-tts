@@ -91,6 +91,9 @@ fn apply_style(ctx: &egui::Context) {
         let radius = CornerRadius::same(7);
         for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
             w.corner_radius = radius;
+            // egui grows a hovered widget by a pixel; on joined buttons and slider handles that
+            // reads as a wobble.
+            w.expansion = 0.0;
         }
         v.widgets.noninteractive.corner_radius = radius;
         v.selection.bg_fill = ACCENT;
@@ -155,6 +158,9 @@ struct SettingsApp {
     devices: Vec<String>,
     shared: Arc<Mutex<Shared>>,
     raise_seen: Option<SystemTime>,
+    /// The EQ gains last sent live to the app, and when.
+    eq_sent: [f32; 3],
+    eq_sent_at: Instant,
     icon: Option<egui::TextureHandle>,
 }
 
@@ -165,6 +171,7 @@ impl SettingsApp {
         // Show the login item as it really is (the installer may have made one).
         settings.launch_at_login = autostart::is_enabled();
         let raise_seen = std::fs::metadata(raise_file()).and_then(|m| m.modified()).ok();
+        let eq_sent = [settings.eq_low_db, settings.eq_mid_db, settings.eq_high_db];
         let app = SettingsApp {
             saved: settings.clone(),
             settings,
@@ -180,6 +187,8 @@ impl SettingsApp {
                 models_note: String::new(),
             })),
             raise_seen,
+            eq_sent,
+            eq_sent_at: Instant::now(),
             icon: None,
         };
         app.refresh_models();
@@ -233,6 +242,22 @@ impl SettingsApp {
             self.dirty_since = Some(Instant::now() - Duration::from_secs(1));
             self.save_if_due();
         }
+    }
+
+    /// While a tone slider moves, tells the app the new gains straight away (at most every 40 ms)
+    /// so the voice that is speaking changes with it; saving follows on the usual debounce.
+    fn send_eq_live(&mut self) {
+        let s = &self.settings;
+        let gains = [s.eq_low_db, s.eq_mid_db, s.eq_high_db];
+        if gains == self.eq_sent || self.eq_sent_at.elapsed() < Duration::from_millis(40) {
+            return;
+        }
+        self.eq_sent = gains;
+        self.eq_sent_at = Instant::now();
+        let [low, mid, high] = gains;
+        std::thread::spawn(move || {
+            let _ = control::send(&format!("set-eq {low} {mid} {high}"));
+        });
     }
 
     fn check_raise(&mut self, ctx: &egui::Context) {
@@ -900,6 +925,7 @@ impl eframe::App for SettingsApp {
         self.check_raise(&ctx);
         self.record_hotkey(&ctx);
         self.window(ui);
+        self.send_eq_live();
         self.save_if_due();
         // Often enough to notice a raise request from the tray promptly.
         ctx.request_repaint_after(Duration::from_millis(if self.dirty_since.is_some() { 100 } else { 250 }));
