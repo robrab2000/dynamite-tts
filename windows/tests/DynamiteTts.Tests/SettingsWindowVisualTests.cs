@@ -122,6 +122,9 @@ public class SettingsWindowVisualTests
 
     private async Task Exercise(SettingsWindow window, Dispatcher dispatcher, string shots)
     {
+        // App shutdown during the exercise must not raise the unsaved-changes dialog; that modal blocks the dispatcher.
+        typeof(SettingsWindow).GetField("_leaveInProgress", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(window, true);
         window.ShowSettings();
         await Idle(dispatcher);
         await Task.Delay(500);

@@ -145,6 +145,10 @@ class DynamiteApp:
 
     # -- speaking ----------------------------------------------------------------
     def speak_selection(self) -> None:
+        if self.speech.is_busy and self.store.current.hotkey_stops_speech:
+            applog.write("hotkey: stopping current speech")
+            self.speech.stop(play_chime=True)
+            return
         text = selection.capture()
         if not text:
             self.show_notice("No text selected")

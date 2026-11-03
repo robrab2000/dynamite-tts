@@ -26,6 +26,9 @@ public partial class SettingsWindow : Window
     private readonly TrayNotificationService _notificationService;
 
     private bool _isExplicitClose;
+    private bool _suppressUiEvents;
+    private bool _leaveInProgress;
+    private AppSettings? _editBaseline;
 
     public SettingsWindow(
         AppSettingsStore settingsStore,
@@ -285,10 +288,9 @@ public partial class SettingsWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        PopulateVoices();
-        RefreshAudioDevices();
-        RefreshDirectMlDevices();
-        PopulateFromSettings(_settingsStore.Current);
+        if (_editBaseline == null)
+            BeginEditSession();
+
         UpdateLocalEngineStatus();
         UpdatePhononEngineStatus();
         try
@@ -296,6 +298,7 @@ public partial class SettingsWindow : Window
             await RefreshModelsAsync();
             await RefreshChatModelsAsync();
             await CheckConnectionAsync();
+            AdoptModelRefreshIntoBaseline();
         }
         catch (Exception ex)
         {
@@ -307,12 +310,9 @@ public partial class SettingsWindow : Window
 
     public void ShowSettings()
     {
-        PopulateVoices();
-        RefreshAudioDevices();
-        RefreshDirectMlDevices();
-        PopulateFromSettings(_settingsStore.Current);
-        UpdateLocalEngineStatus();
-        UpdatePhononEngineStatus();
+        if (!IsVisible)
+            BeginEditSession();
+
         Show();
         if (WindowState == WindowState.Minimized)
         {
@@ -322,9 +322,48 @@ public partial class SettingsWindow : Window
         Focus();
     }
 
+    /// <summary>Loads the saved settings into the form and starts a fresh edit. The saved voice is what speech uses until a different one is selected.</summary>
+    private void BeginEditSession()
+    {
+        _suppressUiEvents = true;
+        try
+        {
+            PopulateVoices();
+            RefreshAudioDevices();
+            RefreshDirectMlDevices();
+            PopulateFromSettings(_settingsStore.Current);
+            UpdateLocalEngineStatus();
+            UpdatePhononEngineStatus();
+            _editBaseline = GetCurrentSettingsFromUi();
+            _orchestrator.VoiceOverride = null;
+        }
+        finally
+        {
+            _suppressUiEvents = false;
+        }
+    }
+
+    /// <summary>
+    /// Model lists fill in after the form opens. Adopt that fill-in when the user has not edited
+    /// anything else, so merely opening settings does not count as a change.
+    /// </summary>
+    private void AdoptModelRefreshIntoBaseline()
+    {
+        if (_editBaseline == null)
+            return;
+
+        var current = GetCurrentSettingsFromUi();
+        var modelNeutral = current.Clone();
+        modelNeutral.Model = _editBaseline.Model;
+        modelNeutral.ChatModel = _editBaseline.ChatModel;
+        if (SettingsMatch(_editBaseline, modelNeutral))
+            _editBaseline = current;
+    }
+
     public void ShutdownWindow()
     {
         _isExplicitClose = true;
+        _orchestrator.VoiceOverride = null;
         _orchestrator.StateChanged -= OnOrchestratorStateChanged;
         _orchestrator.LocalEngine.StatusChanged -= OnLocalEngineStatusChanged;
         _orchestrator.PhononEngine.StatusChanged -= OnPhononEngineStatusChanged;
@@ -333,33 +372,47 @@ public partial class SettingsWindow : Window
 
     private void PopulateVoices(string? preferredVoice = null)
     {
-        var engine = SelectedEngineTag;
-        var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
-        var engineChanged = !string.Equals(_voicesEngine, engine, StringComparison.OrdinalIgnoreCase);
-        _voicesEngine = engine;
-
-        var currentVoice = preferredVoice;
-        if (string.IsNullOrEmpty(currentVoice) && !engineChanged)
-            currentVoice = ReadSelectedVoiceId();
-        if (string.IsNullOrEmpty(currentVoice))
-            currentVoice = isPhonon ? _settingsStore.Current.PhononVoice : _settingsStore.Current.Voice;
-
-        VoiceComboBox.Items.Clear();
-        if (isPhonon)
+        // Rebuilding the list raises selection changes. Those are not the user picking a voice,
+        // and handling them mid-rebuild re-enters layout while the engine combo is still changing.
+        var outerSuppress = _suppressUiEvents;
+        _suppressUiEvents = true;
+        try
         {
-            var language = SelectedPhononLanguage;
-            foreach (var voice in PhononVoice.ForLanguage(language))
-                AddVoiceChoice(voice.DisplayName, voice.Name);
-            foreach (var voice in PhononVoice.Catalog.Where(v => !v.IsDefault && !string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase)))
-                AddVoiceChoice(voice.DisplayName, voice.Name);
+            var engine = SelectedEngineTag;
+            var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
+            var engineChanged = !string.Equals(_voicesEngine, engine, StringComparison.OrdinalIgnoreCase);
+            _voicesEngine = engine;
+
+            var currentVoice = preferredVoice;
+            if (string.IsNullOrEmpty(currentVoice) && !engineChanged)
+                currentVoice = ReadSelectedVoiceId();
+            if (string.IsNullOrEmpty(currentVoice))
+                currentVoice = isPhonon ? _settingsStore.Current.PhononVoice : _settingsStore.Current.Voice;
+
+            VoiceComboBox.Items.Clear();
+            if (isPhonon)
+            {
+                var language = SelectedPhononLanguage;
+                foreach (var voice in PhononVoice.ForLanguage(language))
+                    AddVoiceChoice(voice.DisplayName, voice.Name);
+                foreach (var voice in PhononVoice.Catalog.Where(v => !v.IsDefault && !string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase)))
+                    AddVoiceChoice(voice.DisplayName, voice.Name);
+            }
+            else
+            {
+                foreach (var preset in VoicePreset.Presets)
+                    AddVoiceChoice(preset.DisplayName, preset.Id);
+            }
+
+            SelectListedVoice(currentVoice, isPhonon);
         }
-        else
+        finally
         {
-            foreach (var preset in VoicePreset.Presets)
-                AddVoiceChoice(preset.DisplayName, preset.Id);
+            _suppressUiEvents = outerSuppress;
         }
 
-        SelectListedVoice(currentVoice, isPhonon);
+        if (!outerSuppress)
+            ApplyLiveVoice();
     }
 
     private void AddVoiceChoice(string displayName, string id)
@@ -547,6 +600,7 @@ public partial class SettingsWindow : Window
         ExplainSentenceCountSlider.Value = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
         ExplainSentenceCountValueTextBlock.Text = ((int)ExplainSentenceCountSlider.Value).ToString();
         PlaySoundOnStopCheckBox.IsChecked = settings.PlaySoundOnStop;
+        HotkeyStopsSpeechCheckBox.IsChecked = settings.HotkeyStopsSpeech;
         ShowStatusBubbleCheckBox.IsChecked = settings.ShowStatusBubble;
         LaunchAtStartupCheckBox.IsChecked = _startupService.IsStartupEnabled();
 
@@ -574,6 +628,9 @@ public partial class SettingsWindow : Window
 
     private void OnDirectMlDeviceChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressUiEvents)
+            return;
+
         if (DirectMlDeviceComboBox?.SelectedItem is not AccelerationDeviceInfo deviceInfo)
             return;
 
@@ -693,6 +750,7 @@ public partial class SettingsWindow : Window
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            HotkeyStopsSpeech = HotkeyStopsSpeechCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = LaunchAtStartupCheckBox.IsChecked == true,
             EngineMode = selectedEngine,
@@ -914,7 +972,130 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void OnVoiceSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyLiveVoice();
+    }
+
+    /// <summary>The voice id of the selected row. Typed text is not a voice.</summary>
+    private string SelectedVoiceId() => ReadSelectedVoiceId();
+
+    /// <summary>Speech uses this voice immediately. It is dropped again if the settings are discarded.</summary>
+    private void ApplyLiveVoice()
+    {
+        if (_suppressUiEvents)
+            return;
+
+        var voice = SelectedVoiceId();
+        var saved = _settingsStore.Current;
+        var formEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
+        if (!string.Equals(formEngine, saved.EngineMode, StringComparison.OrdinalIgnoreCase))
+        {
+            // The list belongs to the engine chosen in the form. Leave the running engine's voice alone until that choice is saved.
+            _orchestrator.VoiceOverride = null;
+            return;
+        }
+
+        var savedVoice = saved.IsPhononEngine ? saved.PhononVoice : saved.Voice;
+        _orchestrator.VoiceOverride = string.IsNullOrWhiteSpace(voice)
+            || string.Equals(voice, savedVoice, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : voice;
+    }
+
+    private bool HasUnsavedChanges()
+    {
+        if (_editBaseline == null)
+            return false;
+
+        return !SettingsMatch(_editBaseline, GetCurrentSettingsFromUi());
+    }
+
+    private static bool SettingsMatch(AppSettings baseline, AppSettings current)
+    {
+        return string.Equals(baseline.SpeechEndpoint, current.SpeechEndpoint, StringComparison.Ordinal)
+            && string.Equals(baseline.Model, current.Model, StringComparison.Ordinal)
+            && string.Equals(baseline.Voice, current.Voice, StringComparison.OrdinalIgnoreCase)
+            && Math.Abs(baseline.Speed - current.Speed) < 0.001
+            && (baseline.Hotkey?.Equals(current.Hotkey) ?? current.Hotkey == null)
+            && (baseline.ModeToggleHotkey?.Equals(current.ModeToggleHotkey) ?? current.ModeToggleHotkey == null)
+            && baseline.SpeakMode == current.SpeakMode
+            && string.Equals(baseline.ChatEndpoint, current.ChatEndpoint, StringComparison.Ordinal)
+            && string.Equals(baseline.ChatModel, current.ChatModel, StringComparison.Ordinal)
+            && baseline.ExplainSentenceCount == current.ExplainSentenceCount
+            && baseline.ExplainAudience == current.ExplainAudience
+            && string.Equals(baseline.AudioDeviceId, current.AudioDeviceId, StringComparison.Ordinal)
+            && baseline.PlaySoundOnStop == current.PlaySoundOnStop
+            && baseline.ShowStatusBubble == current.ShowStatusBubble
+            && baseline.RunAtStartup == current.RunAtStartup
+            && string.Equals(baseline.EngineMode, current.EngineMode, StringComparison.OrdinalIgnoreCase)
+            && baseline.DirectMlDeviceId == current.DirectMlDeviceId
+            && string.Equals(baseline.DirectMlModelPrecision, current.DirectMlModelPrecision, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(baseline.PhononVoice, current.PhononVoice, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(baseline.PhononModelDir, current.PhononModelDir, StringComparison.Ordinal)
+            && string.Equals(baseline.PhononLanguage, current.PhononLanguage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <returns>True when the settings window should close.</returns>
+    private bool ConfirmLeave()
+    {
+        if (!HasUnsavedChanges())
+        {
+            _orchestrator.VoiceOverride = null;
+            return true;
+        }
+
+        var choice = MessageBox.Show(
+            this,
+            "You have unsaved changes. Do you want to save them?",
+            "Unsaved Changes",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        switch (choice)
+        {
+            case MessageBoxResult.Yes:
+                return TrySaveSettings();
+            case MessageBoxResult.No:
+                RevertUnsavedEdits();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void RevertUnsavedEdits()
+    {
+        _orchestrator.VoiceOverride = null;
+        _suppressUiEvents = true;
+        try
+        {
+            PopulateFromSettings(_settingsStore.Current);
+        }
+        finally
+        {
+            _suppressUiEvents = false;
+        }
+    }
+
+    private bool DismissSettings()
+    {
+        if (!ConfirmLeave())
+            return false;
+
+        _orchestrator.Stop();
+        Hide();
+        return true;
+    }
+
     private void OnSaveClick(object sender, RoutedEventArgs e)
+    {
+        if (TrySaveSettings())
+            Hide();
+    }
+
+    /// <returns>True when the current form was written to disk.</returns>
+    private bool TrySaveSettings()
     {
         var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
         var isDirectMl = string.Equals(selectedEngine, "DirectML", StringComparison.OrdinalIgnoreCase);
@@ -924,7 +1105,7 @@ public partial class SettingsWindow : Window
         {
             MessageBox.Show(this, "Please enter a valid Lemonade Server endpoint URL.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             EndpointTextBox.Focus();
-            return;
+            return false;
         }
 
         var model = ReadSelectedOption(ModelComboBox);
@@ -951,7 +1132,7 @@ public partial class SettingsWindow : Window
         {
             MessageBox.Show(this, "The Phonon model folder needs config.json, tokenizer.json and model.q8.gguf (or model.safetensors). Clear it to use the bundled model.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             PhononModelDirTextBox.Focus();
-            return;
+            return false;
         }
 
         var newHotkey = HotkeyCaptureControl.Hotkey ?? HotkeyConfig.Default;
@@ -959,7 +1140,7 @@ public partial class SettingsWindow : Window
         if (!_hotkeyService.TryRegisterPair(newHotkey, modeToggleHotkey, out var hotkeyError))
         {
             MessageBox.Show(this, $"{hotkeyError}\nPlease select a different shortcut key combination.", "Shortcut Conflict", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            return false;
         }
 
         var selectedDevice = AudioDeviceComboBox.SelectedItem as AudioDeviceInfo;
@@ -996,6 +1177,7 @@ public partial class SettingsWindow : Window
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            HotkeyStopsSpeech = HotkeyStopsSpeechCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = isStartup,
             EngineMode = selectedEngine,
@@ -1025,37 +1207,57 @@ public partial class SettingsWindow : Window
                     t => AppLog.Warn("Kokoro load after save failed", t.Exception?.GetBaseException()),
                     TaskContinuationOptions.OnlyOnFaulted);
         }
-        Hide();
+
+        _orchestrator.VoiceOverride = null;
+        _editBaseline = GetCurrentSettingsFromUi();
+        return true;
     }
 
     private void OnCancelClick(object sender, RoutedEventArgs e)
     {
-        _orchestrator.Stop();
-        PopulateFromSettings(_settingsStore.Current);
-        Hide();
+        DismissSettings();
     }
 
     private void OnWindowClosing(object? sender, CancelEventArgs e)
     {
-        if (!_isExplicitClose)
+        if (_isExplicitClose)
         {
-            e.Cancel = true;
-            _orchestrator.Stop();
-            Hide();
+            _orchestrator.VoiceOverride = null;
+            return;
         }
+
+        e.Cancel = true;
+        // A modal prompt blocks shutdown, and there is nothing to ask when the window isn't on screen.
+        if (_leaveInProgress || Dispatcher.HasShutdownStarted || !IsVisible)
+        {
+            _orchestrator.VoiceOverride = null;
+            Hide();
+            return;
+        }
+
+        // Let this close attempt finish canceling before the dialog opens.
+        _leaveInProgress = true;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            try
+            {
+                DismissSettings();
+            }
+            finally
+            {
+                _leaveInProgress = false;
+            }
+        }));
     }
 
     private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        if (e.Key == Key.Escape
+            && !HotkeyCaptureControl.IsCapturing
+            && !ModeToggleHotkeyCaptureControl.IsCapturing)
         {
-            if (!HotkeyCaptureControl.IsCapturing && !ModeToggleHotkeyCaptureControl.IsCapturing)
-            {
-                _orchestrator.Stop();
-                PopulateFromSettings(_settingsStore.Current);
-                Hide();
-                e.Handled = true;
-            }
+            DismissSettings();
+            e.Handled = true;
         }
     }
 

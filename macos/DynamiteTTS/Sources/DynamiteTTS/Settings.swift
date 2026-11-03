@@ -103,6 +103,7 @@ struct AppSettings: Codable, Equatable {
     var launchAtLogin: Bool = false
     var showStatusPanel: Bool = true
     var playSoundOnStop: Bool = true
+    var hotkeyStopsSpeech: Bool = true
     var explainSentenceCount: Int = 3
     var explainAudience: ExplainAudience = .technical
     var chatModel: String = "Llama-3.2-1B-Instruct-GGUF"
@@ -131,6 +132,7 @@ struct AppSettings: Codable, Equatable {
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? launchAtLogin
         showStatusPanel = try c.decodeIfPresent(Bool.self, forKey: .showStatusPanel) ?? showStatusPanel
         playSoundOnStop = try c.decodeIfPresent(Bool.self, forKey: .playSoundOnStop) ?? playSoundOnStop
+        hotkeyStopsSpeech = try c.decodeIfPresent(Bool.self, forKey: .hotkeyStopsSpeech) ?? hotkeyStopsSpeech
         explainSentenceCount = try c.decodeIfPresent(Int.self, forKey: .explainSentenceCount) ?? explainSentenceCount
         explainAudience = try c.decodeIfPresent(ExplainAudience.self, forKey: .explainAudience) ?? explainAudience
         chatModel = try c.decodeIfPresent(String.self, forKey: .chatModel) ?? chatModel

@@ -85,6 +85,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func speakSelection() {
+        if speech.isBusy && settings.current.hotkeyStopsSpeech {
+            AppLog.write("hotkey: stopping current speech")
+            speech.stop(playChime: true)
+            return
+        }
         let includeContext = settings.current.speakMode == .explain
         if !SelectionReader.isTrusted(prompt: false) {
             _ = SelectionReader.isTrusted(prompt: true)

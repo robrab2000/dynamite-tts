@@ -74,6 +74,12 @@ public class SpeechOrchestrator : IDisposable
 
     public SpeakMode CurrentSpeakMode => _settingsStore.Current.SpeakMode;
 
+    /// <summary>
+    /// Unsaved voice picked in the settings window. Used instead of the saved voice until the
+    /// settings are saved or discarded; null means use the saved voice.
+    /// </summary>
+    public string? VoiceOverride { get; set; }
+
     public bool IsBusy
     {
         get
@@ -143,6 +149,15 @@ public class SpeechOrchestrator : IDisposable
         UpdateState(TrayIconState.Idle);
     }
 
+    private void StopWithChime(AppSettings settings)
+    {
+        Stop();
+        if (settings.PlaySoundOnStop)
+        {
+            _audioService.PlayStopChime();
+        }
+    }
+
     public void ToggleSpeakMode()
     {
         var settings = _settingsStore.Current;
@@ -173,6 +188,13 @@ public class SpeechOrchestrator : IDisposable
         bool wasBusy = IsBusy;
         var clock = Stopwatch.StartNew();
 
+        if (wasBusy && settings.HotkeyStopsSpeech)
+        {
+            AppLog.Info("hotkey: stopping current speech");
+            StopWithChime(settings);
+            return;
+        }
+
         if (!wasBusy)
             UpdateState(TrayIconState.Capturing);
 
@@ -194,11 +216,7 @@ public class SpeechOrchestrator : IDisposable
         {
             if (wasBusy)
             {
-                Stop();
-                if (settings.PlaySoundOnStop)
-                {
-                    _audioService.PlayStopChime();
-                }
+                StopWithChime(settings);
             }
             else
             {
@@ -212,11 +230,7 @@ public class SpeechOrchestrator : IDisposable
         // 3. If currently busy and the selection hasn't changed, stop playback
         if (wasBusy && string.Equals(capturedText, _lastSpokenText, StringComparison.Ordinal))
         {
-            Stop();
-            if (settings.PlaySoundOnStop)
-            {
-                _audioService.PlayStopChime();
-            }
+            StopWithChime(settings);
             return;
         }
 
@@ -489,7 +503,19 @@ public class SpeechOrchestrator : IDisposable
         try
         {
             var settings = overrideSettings ?? _settingsStore.Current;
-            var voice = settings.Voice;
+            if (overrideSettings == null)
+            {
+                var liveVoice = VoiceOverride;
+                if (!string.IsNullOrWhiteSpace(liveVoice))
+                {
+                    if (settings.IsPhononEngine)
+                        settings.PhononVoice = liveVoice;
+                    else
+                        settings.Voice = liveVoice;
+                }
+            }
+
+            var voice = settings.IsPhononEngine ? settings.PhononVoice : settings.Voice;
             var chunks = SentenceChunker.SplitIntoChunks(textToSpeak);
 
             if (chunks.Count == 0 || cts.IsCancellationRequested)

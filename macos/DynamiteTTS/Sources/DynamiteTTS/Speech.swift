@@ -8,6 +8,8 @@ final class SpeechSession {
     let phonon = PhononEngine()
     var onPhase: ((String?) -> Void)?
     var onNotice: ((String) -> Void)?
+    private(set) var phase: String?
+    var isBusy: Bool { phase != nil }
 
     private let client = LemonadeClient()
     private var stream: PCMStream?
@@ -21,8 +23,14 @@ final class SpeechSession {
         self.settings = settings
         player.onDrained = { [weak self] in
             guard let self, self.streamFinished else { return }
-            self.onPhase?(nil)
+            self.setPhase(nil)
         }
+    }
+
+    private func setPhase(_ phase: String?) {
+        self.phase = phase
+        let notify = onPhase
+        notify?(phase)
     }
 
     /// The engine in use: the launch-argument override, else the setting.
@@ -40,6 +48,9 @@ final class SpeechSession {
         let activeMode = mode ?? settings.current.speakMode
         let engine = engine ?? activeEngine
         AppLog.write("speak chars=\(text.count) mode=\(activeMode.rawValue) engine=\(engine.rawValue) voice=\(engine == .phonon ? settings.current.phononVoice : settings.current.voice)")
+        // Mark busy before the task starts, so a second shortcut stops this request
+        // instead of racing a phase that has not been reported yet.
+        setPhase("Starting…")
         task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -50,7 +61,7 @@ final class SpeechSession {
                 AppLog.write("speak failed: \(error.localizedDescription)")
                 if token == self.generation {
                     self.onNotice?(error.localizedDescription)
-                    self.onPhase?(nil)
+                    self.setPhase(nil)
                 }
             }
         }
@@ -65,7 +76,7 @@ final class SpeechSession {
         player.stop(playChime: playChime && settings.current.playSoundOnStop && receivedAudio)
         receivedAudio = false
         streamFinished = false
-        onPhase?(nil)
+        setPhase(nil)
     }
 
     private func run(text: String, context: String?, mode: SpeakMode, engine: SpeechEngine, token: Int) async throws {
@@ -77,15 +88,14 @@ final class SpeechSession {
                 throw LemonadeError.message("The Lemonade address is not a valid URL.")
             }
             baseURL = url
-            onPhase?("Starting Lemonade…")
+            setPhase("Starting Lemonade…")
             try await client.ensureServer(baseURL: url)
             AppLog.write("lemonade ready \(url.absoluteString)")
             try Task.checkCancellation()
         }
-
         var spoken = text
         if mode == .summary || mode == .explain, let baseURL {
-            onPhase?(mode == .summary ? "Summarizing…" : "Explaining…")
+            setPhase(mode == .summary ? "Summarizing…" : "Explaining…")
             let model = await client.pickChatModel(baseURL: baseURL, preferred: settings.chatModel)
             try await client.ensureModel(baseURL: baseURL, model: model)
             try Task.checkCancellation()
@@ -127,18 +137,18 @@ final class SpeechSession {
     // MARK: - Phonon (in-process)
 
     private func speakWithPhonon(_ spoken: String, settings: AppSettings, token: Int) async throws {
-        if !phonon.isLoaded { onPhase?("Loading Phonon…") }
+        if !phonon.isLoaded { setPhase("Loading Phonon…") }
         phonon.onStatus = { [weak self] status in
             Task { @MainActor in
                 guard let self, token == self.generation, !self.receivedAudio else { return }
                 if case .ready = self.phonon.state { return }
-                self.onPhase?(status)
+                self.setPhase(status)
             }
         }
         try await phonon.prepare(customModelDir: settings.phononModelDir, language: settings.phononLanguage)
         try Task.checkCancellation()
         if token != generation { return }
-        onPhase?("Synthesizing…")
+        setPhase("Synthesizing…")
         try startPlayer(settings)
         AppLog.write("phonon request chars=\(spoken.count) voice=\(settings.phononVoice) speed=\(settings.speed) lang=\(settings.phononLanguage)")
         let requested = Date()
@@ -149,7 +159,7 @@ final class SpeechSession {
                     self.receivedAudio = true
                     let ms = Int(Date().timeIntervalSince(requested) * 1000)
                     AppLog.write("first audio samples=\(samples.count) after \(ms) ms")
-                    self.onPhase?("Speaking")
+                    self.setPhase("Speaking")
                 }
                 self.player.enqueue(samples: samples)
             }
@@ -158,9 +168,9 @@ final class SpeechSession {
         streamFinished = true
         if stats.samples == 0 {
             onNotice?("Phonon produced no audio.")
-            onPhase?(nil)
+            setPhase(nil)
         } else if player.scheduledBuffers == 0 {
-            onPhase?(nil)
+            setPhase(nil)
         }
     }
 
@@ -169,17 +179,17 @@ final class SpeechSession {
     private func speakWithKokoro(_ spoken: String, baseURL: URL, settings: AppSettings, token: Int) async throws {
         // The installer leaves Kokoro out; its backend and voice (about 340 MB) arrive the first time it is used.
         if !kokoroBackendInstalled {
-            onPhase?("Installing Kokoro…")
+            setPhase("Installing Kokoro…")
             try await client.installBackend(baseURL: baseURL, recipe: "kokoro", backend: "metal")
             kokoroBackendInstalled = true
             try Task.checkCancellation()
         }
-        onPhase?("Synthesizing…")
+        setPhase("Synthesizing…")
         try await client.ensureModel(baseURL: baseURL, model: "kokoro-v1") { [weak self] in
             AppLog.write("kokoro-v1 not downloaded; pulling")
             Task { @MainActor in
                 guard let self, token == self.generation else { return }
-                self.onPhase?("Downloading Kokoro (once)…")
+                self.setPhase("Downloading Kokoro (once)…")
             }
         }
         AppLog.write("kokoro ready")
@@ -193,7 +203,7 @@ final class SpeechSession {
                     if !self.receivedAudio {
                         self.receivedAudio = true
                         AppLog.write("first audio bytes=\(data.count)")
-                        self.onPhase?("Speaking")
+                        self.setPhase("Speaking")
                     }
                     self.player.enqueue(data)
                 }
@@ -204,12 +214,12 @@ final class SpeechSession {
                     self.streamFinished = true
                     if let error {
                         self.onNotice?(error.localizedDescription)
-                        self.onPhase?(nil)
+                        self.setPhase(nil)
                     } else if !self.receivedAudio {
                         self.onNotice?("Lemonade returned no audio.")
-                        self.onPhase?(nil)
+                        self.setPhase(nil)
                     } else if self.player.scheduledBuffers == 0 {
-                        self.onPhase?(nil)
+                        self.setPhase(nil)
                     }
                 }
             }
