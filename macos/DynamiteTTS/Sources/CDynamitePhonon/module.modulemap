@@ -1,8 +1,0 @@
-// The C interface of the Phonon shim (windows/native/phonon), shared with the Windows app. The
-// Swift side (PhononEngine.swift) takes the types from this header and resolves the functions
-// with dlopen/dlsym at run time, so the app builds and runs without the dylib (the Phonon
-// engine then reports "runtime missing" and Kokoro stays available).
-module CDynamitePhonon [system] {
-    header "../../../../windows/native/phonon/include/dynamite_phonon.h"
-    export *
-}

@@ -1,252 +1,210 @@
-# Dynamite TTS — Highlight-to-Speech for Windows, macOS, and Linux
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-transparent.png">
+    <img src="assets/logo.png" alt="Dynamite TTS" width="320">
+  </picture>
+</p>
 
-A fast, lightweight, and 100% private highlight-to-speech utility. All three apps speak with [Phonon](https://github.com/gradium-ai/xn-ptts) in-process by default and offer Kokoro as the alternative engine. Kokoro is not installed up front: its model downloads the first time you pick it in Settings. The Windows tray app is in `windows/` and runs both engines in-process. The Apple Silicon menu-bar app is in `macos/`; it runs Kokoro through Lemonade's Metal backend and summarizes with Lemonade's Metal chat model. The Linux tray app is in `linux/` and uses Lemonade's CPU Kokoro and llama.cpp backends the same way.
-
-```bash
-./macos/install-lemonade.sh
-./macos/package-app.sh
-open macos/DynamiteTTS/DynamiteTTS.app
-```
-
-To carry it to another Apple Silicon Mac, build one installer and copy that file:
-
-```bash
-./macos/make-installer.sh ~/Desktop/DynamiteTTS-install.command
-```
-
-Copy that one file to the other Apple Silicon Mac and run it from Terminal. Opening it from Finder makes macOS treat the download as untrusted and move it to the Trash.
-
-```bash
-cd ~/Downloads
-bash DynamiteTTS-install.command
-```
-
-The script prints each stage and stops on the line that fails. The window stays open until you press Return. It installs the Command Line Tools, Lemonade with its chat model, the Phonon engine and model, and the menu-bar app. It needs Apple Silicon and macOS 15 or later. The prompts you accept by hand are the Command Line Tools install and Accessibility for Dynamite TTS.
-
-**Phonon on the Mac.** `package-app.sh` builds the Phonon shim (`windows/native/phonon`, with the pinned `Cargo.lock`) when Rust is installed. It copies the shim into the app with the Phonon 31M English model (65 MB, downloaded once into `~/Library/Application Support/DynamiteTTS/models` and SHA-256 checked). `make-installer.sh` ships a prebuilt shim, so the other Mac does not need Rust. Phonon is the default engine, so Verbatim mode needs no Lemonade at all. On an M1 Max the model loads in under 0.1 s, the first audio arrives in about 10–25 ms, and speech renders at about 30x realtime on the CPU. The ~100 catalogue voices download the first time you pick one. Language (en, fr, de, es, pt or none) and a custom model folder for the gated 40M checkpoints are in the same section. Summary and Explain still use Lemonade's chat model. Picking **Engine → Kokoro (Lemonade)** installs Lemonade's `kokoro:metal` backend and downloads the `kokoro-v1` voice (about 340 MB) the first time you speak with it. Without Rust and without a prebuilt shim, the app still builds, and Phonon speech reports the missing shim until you build it.
-
-## Linux
-
-A GTK tray app for GNOME (Wayland or X11) and other desktops. Like the Mac app it speaks through Lemonade, so there is nothing to compile: it needs only Python 3 with the GTK bindings that Ubuntu already ships.
-
-```bash
-./linux/install.sh
-```
-
-The script installs the system packages with `apt` (asks for your password once), puts Lemonade and the app under `~/.local`, installs Phonon and downloads the chat model, and starts the tray icon. It needs Ubuntu 24.04 or later, or any distribution with Python 3.11+, GTK 3, libnotify, and PipeWire or PulseAudio. Highlight some text and press `Ctrl+Shift+S`; `Ctrl+Shift+M` cycles Verbatim → Summary → Explain. While speech is playing, `Ctrl+Shift+S` stops it. Turn that off in Settings to have the shortcut read a new highlight instead.
-
-How it differs from the other platforms:
-
-- **No clipboard tricks.** On Linux a highlight *is* the PRIMARY selection, so the app reads it directly with `wl-paste` (Wayland) or `xclip` (X11). Your clipboard is never touched, and no fake `Ctrl+C` is sent.
-- **Shortcuts belong to the desktop.** Wayland does not let a background app grab keys. On GNOME the app registers two custom shortcuts (Settings → Keyboard → Custom Shortcuts) that run `dynamite-tts speak` and `dynamite-tts toggle-mode`, and those commands reach the running app over a Unix socket. On KDE, Sway, or Hyprland bind those two commands yourself; they work the same.
-- **Status is a notification.** A compositor will not let an app float a pill at the top of the screen without taking focus, so phases (`Summarizing…`, `Speaking`) are a desktop notification with a Stop button that is updated in place and closed when speech ends. GNOME draws it top-centre.
-- **Tray icon via AppIndicator.** Ubuntu's GNOME has the AppIndicator extension on by default; on stock GNOME enable it (or use the CLI and the Settings window without a tray).
-
-Useful commands:
-
-```bash
-dynamite-tts              # start (or raise Settings if already running)
-dynamite-tts speak        # read the highlight (what the shortcut runs)
-dynamite-tts toggle-mode  # Verbatim → Summary → Explain
-dynamite-tts stop | settings | ping | quit
-dynamite-tts --speak "Hello"
-./linux/uninstall.sh      # remove the app, shortcuts, and settings (add --purge for Lemonade too)
-```
-
-Settings live in `~/.config/dynamite-tts/settings.json`, the log in `~/.local/state/dynamite-tts/dynamite.log`, and Lemonade plus its models in `~/.local/share/dynamite-tts/lemonade`. To run from the checkout without installing: `./linux/dynamite-tts`. Unit tests: `cd linux && python3 -m unittest discover -s tests -t .`.
-
-Measured on a 6-core i7-8750H (CPU only): about 1 s to first audio for a short sentence, 2.5–3 s for a paragraph, and synthesis runs about 3x realtime, so playback starts on the first chunk while the rest renders. The optional `llamacpp:vulkan` backend speeds up Summary and Explain on a GPU: `~/.local/share/dynamite-tts/lemonade/lemonade backends install llamacpp:vulkan`.
-
-**Phonon on Linux.** `install.sh` runs `linux/install-phonon.sh`, which puts Gradium's `ptts` wheel in a private venv under `~/.local/share/dynamite-tts/phonon-venv` and downloads the Phonon 31M English model (65 MB). Phonon is the default engine: Verbatim mode needs no Lemonade at all, first audio arrives within tens of milliseconds, and the ~100 catalogue voices are downloaded the first time you pick one. Summary and Explain still use Lemonade's chat model. The prebuilt wheel needs an x86-64-v3 (AVX2) or ARM64 CPU; the venv and model are removed by `uninstall.sh --purge`. If that step fails, Phonon speech says so instead of downloading Kokoro. Picking **Engine → Kokoro (via Lemonade)** installs the `kokoro:cpu` backend and downloads the `kokoro-v1` voice (about 340 MB) the first time you speak with it.
+<p align="center">
+  <b>Highlight text anywhere. Press a shortcut. Hear it read aloud — instantly, privately, on your own computer.</b><br>
+  Windows · macOS · Linux
+</p>
 
 ---
+
+Dynamite TTS lives in your tray (menu bar). Highlight text in any app — a browser, a PDF, your editor — and press **`Ctrl+Shift+S`**. Speech starts in tens of milliseconds, because the voice model runs right inside the app on your CPU: no cloud, no account, no GPU, nothing leaves the machine.
+
+Press **`Ctrl+Shift+M`** to switch modes:
+
+- **Verbatim** reads the highlight as it is.
+- **Summary** reads a short summary of it.
+- **Explain** explains what the highlight means. On macOS it also sends the text around a short highlight, so "Electron" next to "desktop apps" isn't explained as a particle.
+
+Summary and Explain use a small chat model running locally in [Lemonade Server](https://lemonade-server.ai). Verbatim needs nothing but the app.
 
 ## Features
 
-- **Tray-First Native Architecture:** Sits quietly in the Windows notification area with a lightweight Win32 message-only host (`HWND_MESSAGE`) and custom tray menu.
-- **Dynamic 3-State Tray Icon:**
-  - **Ready:** Solid icon with tooltip `Dynamite TTS (Ready)`
-  - **Synthesizing:** Active icon with tooltip `Dynamite TTS (Synthesizing...)`
-  - **Speaking:** Audio wave icon with tooltip `Dynamite TTS (Speaking...)`
-- **Global Hotkey (Default: `Ctrl+Shift+S`):**
-  - Instant text-to-speech from any application (browser, PDF, code editor, office apps).
-  - While speech is playing, the shortcut stops it. Turn off "Pressing the speak hotkey while speaking stops speech" in Settings to have it read a newly highlighted selection instead. The same checkbox exists on macOS and Linux.
-  - Modifier key debounce so standard `Ctrl+C` copy operates reliably in every application.
-  - Interactive "Press Shortcut" recorder in Settings with dynamic conflict detection and instant rebinding (no restart required).
-- **Speak Mode Toggle (Default: `Ctrl+Shift+M`):**
-  - Cycles **Verbatim** → **Summary** → **Explain** → **Verbatim**.
-  - **Verbatim** speaks the selection as-is; **Summary** summarizes first, then speaks; **Explain** briefly explains the selection (names it up front; adapts for short terms vs longer passages), then speaks. For short highlights, Explain tries to read surrounding paragraph/nearby lines via UI Automation so ambiguous words (e.g. product names) can be disambiguated.
-  - Summary and Explain call a local [Lemonade Server](https://lemonade-server.ai) LLM via OpenAI-compatible `/chat/completions` — text stays on-device. TTS can still use in-process Kokoro.
-  - Explain length (about N sentences) and audience (Technical / General) are configurable in Settings; they share the **Chat Model** with Summary.
-  - The status bubble shows “Mode: …” on toggle, and “Summarizing…” / “Explaining…” while the LLM runs.
-- **Clipboard Preservation:**
-  - Safely captures full COM `IDataObject` preserving all existing clipboard content (including images, screenshots, files, and formatted text).
-  - Automatically restores your previous clipboard content after extracting the selected text.
-  - Empty or non-text selections are silently ignored.
-- **Smart Text Sanitization & Chunking:**
-  - Cleans markdown links, raw URLs, code backticks, header hashes, and bullet markers for natural reading flow.
-  - Automatically splits long articles (>500 characters) across sentence boundaries and streams chunks sequentially with lookahead pre-buffering.
-- **In-Process Local Phonon Engine (Settings → Inference Engine):**
-  - Runs Gradium's [Phonon](https://github.com/gradium-ai/xn-ptts) 31M-parameter model (Apache 2.0) through a small Rust shim (`windows/native/phonon`) on the CPU; no GPU, no server, nothing leaves the machine.
-  - Streams 80 ms frames as it generates them: measured on a Ryzen AI 9 HX 370, the engine loads in 0.06 s, the first audio is ready 20–80 ms after the hotkey, and a paragraph renders about 10x faster than realtime on 3–4 threads. End to end through the audio pipeline the first word is audible about 25 ms after the request.
-  - About 100 catalogue voices in English, French, German, Spanish and Portuguese (downloaded on first use, 250 KB each) plus the model's built-in voice; speed is driven through Phonon's `duration_delta` condition (about 0.67x–1.5x of its natural rate).
-  - The English 31M model is bundled with the installer. For other languages, download a Phonon 40M checkpoint from Hugging Face (gated, CC BY-NC) into a folder and point **Model Folder** at it.
-  - The default engine. Needs an x86-64-v3 CPU (AVX2: Intel Haswell / AMD Excavator or newer); on older CPUs the app defaults to Kokoro.
-- **In-Process Local Kokoro Engine:**
-  - Not bundled: the Kokoro model (325 MB) downloads once into `%LocalAppData%\DynamiteTts\models` the first time Kokoro is chosen. The voices ship with the app.
-  - Runs Kokoro-82M through ONNX Runtime inside the app; no text leaves the machine.
-  - Streams speech sentence by sentence: a short first segment plays within about a second while the rest renders in the background through one gapless audio stream with back-pressure.
-  - Stop or a new hotkey press cancels the in-flight inference immediately (no orphaned work queued behind the next request).
-  - CPU path (one thread per physical core, fp32 graph) is always warm: about 0.35 s to first audio and 5x realtime on a Ryzen AI 9 HX 370.
-  - NVIDIA GPUs are used through CUDA when present: the CUDA 13 runtime (about 1 GB) is fetched once from NVIDIA's PyPI wheels into `%LocalAppData%\DynamiteTts\cuda13`, the GPU session loads on first use while the CPU renders the first sentences, and it is unloaded after a few idle minutes so a laptop's discrete GPU can sleep. Measured on an RTX 5070 Laptop: about 0.11 s to first audio and 13x realtime.
-  - "CPU only" in Settings keeps the GPU untouched; DirectML and the Ryzen AI NPU were evaluated and rejected (see `windows/experiments/FINDINGS-tts-backends.md`).
-  - Playback starts as soon as the first sentence is rendered (about 0.2 s with the GPU session loaded, 0.6–0.8 s on the CPU) and continues while the rest of the selection is synthesized.
-- **Status Bubble:**
-  - A small pill at the top of the screen, in the style of Handy's recording bubble, shows "Reading selection…", "Summarizing…", "Explaining…", "Synthesizing…" and "Speaking", with level bars that follow the actual audio output and a stop button.
-  - It never takes keyboard focus, so it cannot interfere with the selection capture or with typing. It can be turned off in Settings.
-- **Diagnostics Log:**
-  - Each request's timings (time to first audible audio, synthesis and playback duration, mid-speech gaps, fallbacks) and engine state changes are written to `%LocalAppData%\DynamiteTts\logs`, kept for a week. The spoken text itself is never logged.
-- **Reliable Local Audio Engine:**
-  - Uses NAudio with WASAPI Shared mode (`WasapiOut`) so speech mixes naturally with background music or system audio.
-  - Configurable audio output device with automatic fallback to Windows System Default on disconnect.
-  - Single-concurrency speech pipeline: Pressing the hotkey again or hitting **Stop** instantly halts playback and clears in-flight synthesis.
-- **Accessible Modern WPF Settings:**
-  - Dark/Light adaptive styling matching Windows system themes.
-  - Live server connection health badge (Green dot when online, Red when offline).
-  - Direct **Voice Preview / Audition** button to test different Kokoro and OpenAI voice accents.
-  - Output device selector and speech speed adjustment (0.25x - 4.0x).
-  - Optional **Launch at login** toggle backed by `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-  - Double-clicking the tray icon opens Settings.
-- **Single-Instance Enforcement:** Named mutex activation brings existing Settings window to the foreground if launched again.
+- **Fast, local speech.** [Phonon](https://github.com/gradium-ai/xn-ptts) by Gradium (Apache 2.0) runs in-process: the model loads in under 0.1 s, the first audio arrives 15–40 ms after the request, and a paragraph renders about 10× faster than it is spoken. The English model ships with every download.
+- **About 100 voices** in English, French, German, Spanish and Portuguese, each downloaded the first time you pick it (about 250 KB). Speed from 0.67× to 1.5×.
+- **Tone control.** A three-band EQ with presets (Flat, Warm, Clear, Bright, Soft) or your own Low / Mid / High settings, for voices that sound dull or shrill. Changes are heard straight away, even mid-sentence, and add no latency.
+- **A status pill you can tune.** A small pill at the top of the screen fades in while the app works: an orange ripple while it thinks, blue bars that follow the voice while it speaks. Click it to stop. Choose Off, Minimal, Standard or Detailed.
+- **A tray icon that shows what's happening.** Grey when ready, orange while thinking, blue while speaking, with the fuse lit only while it's busy.
+- **Respectful of your clipboard.** On Windows and macOS anything the app copies to read the highlight is put back; on Linux the clipboard is never touched.
+- **Private by design.** Text is never sent anywhere, and the log records timings only, never what was read.
 
----
+<p align="center">
+  <img src="docs/images/status-minimal-speaking.png" alt="Minimal status pill" height="32">
+  <img src="docs/images/status-standard-speaking.png" alt="Standard status pill" height="52">
+  <img src="docs/images/status-detailed-working.png" alt="Detailed status pill while summarizing" height="72">
+</p>
 
-## Architecture & Layout
+## Install
 
-```
-windows/
-├── DynamiteTts.sln
-├── src/
-│   └── DynamiteTts/
-│       ├── App.xaml / App.xaml.cs            # App bootstrap, single-instance mutex, shutdown
-│       ├── Native/
-│       │   ├── NativeMethods.cs              # Shell_NotifyIcon, RegisterHotKey, SendInput, Menus
-│       │   ├── PhononNative.cs               # P/Invoke surface of the Phonon shim (windows/native/phonon)
-│       │   ├── TrayIconHost.cs               # HWND_MESSAGE, 3-state icon switching, context menu
-│       │   └── HotkeyService.cs              # Win32 RegisterHotKey (speak + mode-toggle IDs), conflict detection & rebind
-│       ├── Services/
-│       │   ├── AppSettingsStore.cs           # %AppData%\DynamiteTts\settings.json
-│       │   ├── AppLog.cs                     # Daily rolling diagnostics log in %LocalAppData%\DynamiteTts\logs (timings only, never text)
-│       │   ├── ClipboardSelectionService.cs  # Full IDataObject preserve/restore & SendInput Ctrl+C
-│       │   ├── TextSanitizer.cs              # Markdown & URL cleaner for natural TTS reading
-│       │   ├── SentenceChunker.cs            # Boundary splitting & pipelining for long articles
-│       │   ├── LocalTtsService.cs            # In-process Kokoro via ONNX Runtime: segmentation, streaming, cancellation, CPU + lazily loaded CUDA session
-│       │   ├── PhononTtsService.cs           # In-process Phonon via dynamite_phonon.dll: model/voice download, streaming callback → playback, speed, cancellation
-│       │   ├── CudaRuntimeService.cs         # Downloads/extracts the CUDA 13 DLLs (cudart, cuBLAS, cuDNN, cuFFT, NVRTC) from NVIDIA's PyPI wheels
-│       │   ├── CudaDeviceService.cs          # NVIDIA GPU enumeration via the CUDA driver API; accelerator picker entries
-│       │   ├── LemonadeTtsClient.cs          # HTTP client, endpoint normalizer, model discovery
-│       │   ├── LemonadeChatClient.cs         # Local Lemonade /chat/completions for Summary and Explain modes
-│       │   ├── AudioDeviceService.cs         # Output device enumeration (MMDevice)
-│       │   ├── AudioPlaybackService.cs       # NAudio WASAPI Shared playback & cancellation
-│       │   ├── SpeechOrchestrator.cs         # Speech lifecycle, verbatim/summary/explain mode, state machine, cancellation
-│       │   ├── StartupRegistrationService.cs # HKCU Run registry helper
-│       │   └── TrayNotificationService.cs    # Native Windows balloon notifications
-│       ├── Models/
-│       │   ├── AppSettings.cs
-│       │   ├── AudioDeviceInfo.cs
-│       │   ├── HotkeyConfig.cs
-│       │   ├── SpeakMode.cs                  # Verbatim | Summary | Explain
-│       │   ├── ExplainAudience.cs            # General | Technical
-│       │   ├── TrayIconState.cs
-│       │   ├── TtsModelInfo.cs
-│       │   ├── PhononVoice.cs                # Phonon voice catalogue (embedded voices.jsonl snapshot)
-│       │   └── VoicePreset.cs
-│       ├── UI/
-│       │   ├── SettingsWindow.xaml(+.cs)     # Dark/Light adaptive Settings window
-│       │   ├── StatusBubbleWindow.xaml(+.cs) # Top-of-screen status pill (reading / summarizing / explaining / synthesizing / speaking)
-│       │   └── Controls/
-│       │       └── HotkeyCaptureBox.xaml(+.cs)# Interactive shortcut capture box
-│       └── Resources/
-│           ├── app_idle.ico                  # Ready tray icon
-│           ├── app_active.ico                # Synthesizing tray icon
-│           └── app_speaking.ico              # Speaking tray icon
-├── native/
-│   └── phonon/                              # Rust cdylib over the `ptts` crate: dynamite_phonon.dll (cargo build --release)
-└── tests/
-    └── DynamiteTts.Tests/                   # xUnit unit test suite
-macos/
-├── DynamiteTTS/                             # Apple Silicon menu-bar app (Sources/DynamiteTTS/PhononEngine.swift: in-process Phonon)
-├── install-phonon-model.sh                  # Pinned, hash-checked Phonon model download (package-app.sh runs it)
-└── Spike/phonon_bench.py                    # Measures the Phonon shim: load, first audio, realtime, cancel, voices
-linux/
-├── dynamite-tts                             # Launcher (python3 -m dynamite_tts)
-├── install.sh / install-lemonade.sh / uninstall.sh
-├── dynamite_tts/
-│   ├── app.py                               # AppIndicator tray, menu, phases, control-socket commands
-│   ├── speech.py                            # Speech lifecycle: cleanup → chat (Summary/Explain) → streamed Kokoro or Phonon
-│   ├── lemonade.py                          # Lemonade HTTP client: health, load/pull, chat, PCM stream; starts lemond
-│   ├── phonon.py                            # In-process Phonon through the `ptts` wheel in ~/.local/share/dynamite-tts/phonon-venv
-│   ├── playback.py                          # PCM piped to pw-play / paplay / aplay from a writer thread; chime; levels
-│   ├── selection.py                         # PRIMARY selection via wl-paste / xclip / xsel / GTK (clipboard fallback)
-│   ├── hotkeys.py                           # GNOME custom keybindings → `dynamite-tts speak` / `toggle-mode`
-│   ├── control.py                           # Single-instance lock and the Unix control socket
-│   ├── status.py                            # Phase notifications with a Stop action (libnotify)
-│   ├── settings.py / settings_window.py     # ~/.config/dynamite-tts/settings.json and the GTK Settings window
-│   ├── text.py                              # Same sanitizer and Summary/Explain prompts as the other platforms
-│   └── autostart.py                         # ~/.config/autostart entry for Launch at login
-└── tests/                                   # unittest suite (no audio hardware needed)
+Download the file for your system from the [latest release](https://github.com/robrab2000/dynamite-tts/releases/latest). Builds are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper may ask you to confirm the first launch.
+
+### Windows 10 (1809+) or 11, 64-bit
+
+1. Run **`DynamiteTts-Setup-v….exe`**. If SmartScreen appears, choose **More info → Run anyway**.
+2. Leave **Install Lemonade Server** ticked if you want Summary and Explain (it uses winget), and **Start Dynamite TTS when I sign in** if you like.
+3. The app starts in the tray. Highlight some text and press `Ctrl+Shift+S`.
+
+It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator rights. The **`win-x64` zip** is a portable copy of the same files; keep the `models` folder next to `DynamiteTts.exe`.
+
+### macOS 14+ on Apple Silicon
+
+1. Unzip **`DynamiteTTS-macos-arm64-v….zip`** and drag **DynamiteTTS.app** to Applications.
+2. Open it. The first time, macOS may refuse because the app isn't notarized: right-click it and choose **Open**, or on newer macOS go to System Settings → Privacy & Security and click **Open Anyway**.
+3. When asked, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
+
+For Summary and Explain, run `packaging/macos/install-lemonade.sh` from the source, or install Lemonade yourself.
+
+### Linux (Ubuntu 22.04+ and similar; GNOME on Wayland or X11)
+
+```bash
+tar -xzf DynamiteTts-linux-x64-v*.tar.gz
+cd DynamiteTts-linux-x64-v*/
+./install.sh
 ```
 
----
+The script installs a few system packages with `apt` (GTK 3, AppIndicator, ALSA, wl-clipboard, xclip; it asks for your password once), puts the app in `~/.local/share/dynamite-tts` with a `dynamite-tts` command in `~/.local/bin`, installs Lemonade and its chat model, and starts the tray icon. Options: `--no-apt` if you install the packages yourself, `--no-lemonade` to skip Lemonade.
 
-## Prerequisites (Windows)
+Linux works a little differently, because of how Wayland is designed:
 
-- Windows 10 (1809+) or Windows 11 (x64)
-- [.NET 9.0 SDK](https://dotnet.microsoft.com/) (for building from source only)
-- [Rust](https://rustup.rs) (for building from source only, for the Phonon engine; `publish.ps1` builds the shim when `cargo` is on the PATH)
-- Optional: local [Lemonade Server](https://lemonade-server.ai) on `http://localhost:13305` for Summary / Explain modes or Lemonade-server TTS (in-process Phonon and Kokoro do not need it)
+- **The highlight is read directly.** On Linux a highlight *is* the "primary selection", so the app reads it with `wl-paste` or `xclip`; no keys are pressed and the clipboard is never used.
+- **Shortcuts are set up in the desktop.** A Wayland app can't grab keys, so on GNOME the app adds two custom shortcuts (Settings → Keyboard → Custom Shortcuts) that run `dynamite-tts speak` and `dynamite-tts toggle-mode`. On X11 without GNOME it grabs the keys itself. On KDE, Sway or Hyprland under Wayland, bind those two commands yourself.
+- **The status is a notification**, updated in place, instead of the pill.
 
----
+Hardware: x86-64 builds need a CPU with AVX2 (Intel Haswell / AMD Excavator, about 2013, or newer), the same baseline as Gradium's own Phonon builds. Apple Silicon is always fine.
 
-## Install (prebuilt)
+## Using it
 
-1. Download **`DynamiteTts-Setup-v*.exe`** from [Releases](https://github.com/robrab2000/dynamite-tts/releases) (preferred), or the portable `.zip`.
-2. Run the installer — it explains dependencies, checks for 64-bit Windows 10 1809+ / Windows 11, and installs to `%LocalAppData%\Programs\DynamiteTTS`.
-3. On the optional-components page, **Lemonade Server is checked by default** (needed for Summary / Explain). Uncheck it if you only want Verbatim TTS.
-4. When setup finishes, choose **Launch Dynamite TTS**. The tray icon appears; highlight text and press the speak hotkey (`Ctrl+Shift+S` by default).
+| | |
+|---|---|
+| **`Ctrl+Shift+S`** | Read the highlight. Pressed again while speaking, it stops (or, if you turn that off in Settings, reads the new highlight). |
+| **`Ctrl+Shift+M`** | Switch mode: Verbatim → Summary → Explain. |
+| **Status pill** | Click it to stop speaking. |
+| **Tray menu** | Mode, Settings…, Quit. On Windows, double-click the tray icon for Settings. |
 
-The installer is self-contained (no separate .NET runtime). It bundles the Phonon engine with its English model, so Verbatim speech works immediately. The Kokoro model (325 MB) is not bundled; it downloads the first time you choose Kokoro under **Settings → Inference Engine**. The first time you use **Summary** or **Explain** mode, Dynamite downloads a small default Lemonade chat model (`Qwen2.5-0.5B-Instruct`) if needed. Optional NVIDIA CUDA acceleration (~1 GB) still downloads on first GPU use.
+Both shortcuts can be changed in Settings: click the shortcut, then press the new keys.
 
-### Hardware
+### Settings
 
-- **Verbatim (Kokoro):** any supported Windows x64 PC (CPU; NVIDIA GPU optional).
-- **Verbatim (Phonon):** CPU only; needs AVX2 (x86-64-v3, i.e. roughly 2013 or newer processors).
-- **Summary / Explain (Lemonade):** needs Lemonade Server plus enough RAM for a small local LLM. AMD NPU/GPU is optional and only speeds things up — not required for the default tiny model.
+Changes are saved as you make them and apply at once.
 
-**SmartScreen:** builds are currently **unsigned**. Windows may show “Windows protected your PC” — choose **More info** → **Run anyway**.
+<p align="center">
+  <img src="docs/images/settings-voice.png" alt="Settings: Voice page" width="560">
+</p>
 
-Portable zip users: unzip somewhere permanent, keep `voices`, `models` and `dynamite_phonon.dll` next to `DynamiteTts.exe`, then run the exe. Install Lemonade separately if you want Summary or Explain mode.
+- **Voice:** voice, speed, language, tone (EQ), output device, and the Phonon model folder (leave it on the built-in English model unless you have a Phonon 40M checkpoint for another language). **Test voice** plays a sample.
+- **Modes:** the speak mode, how long explanations are (1–8 sentences) and who they're for (Technical or General), and the Lemonade chat model and address.
+- **Shortcuts:** the two shortcuts, and whether the speak shortcut stops speech that is playing.
+- **General:** the status display (with **Preview**), start at login, the stop sound, and the log folder.
 
----
+### Tone presets
 
-## Quick Start (from source)
+| Preset | Low (220 Hz) | Mid (1.8 kHz) | High (5 kHz) | For |
+|---|---|---|---|---|
+| Flat | 0 | 0 | 0 | the voice as the model makes it |
+| Warm | +3 | 0 | −3 | thin or shrill voices |
+| Clear | −2 | +2.5 | +3 | dull or muffled voices |
+| Bright | 0 | +1 | +5 | extra sparkle |
+| Soft | +1 | −1.5 | −5 | harsh S and T sounds |
 
-### 1. Build and Run
-```powershell
-dotnet run --project windows/src/DynamiteTts/DynamiteTts.csproj
+Moving a slider (±12 dB) switches to Custom. The EQ is three biquad filters applied as the sound card plays: no added delay, about 2–6 ns per sample (ten minutes of speech in well under a tenth of a second), and nothing at all on Flat.
+
+### Status display
+
+| Style | Shows |
+|---|---|
+| Off | Nothing on screen; only the tray icon changes. |
+| Minimal | A small see-through pill with just the moving bars. Mode changes and errors still show briefly. |
+| Standard | Bars and a short label such as "Speaking" or "Summarizing…". |
+| Detailed | A larger pill with the current mode and how to stop. |
+
+### Command line
+
+The same program is a remote control for the running app (this is what the Linux shortcuts use):
+
+```bash
+dynamite-tts                 # start the app, or open Settings if it's running
+dynamite-tts speak           # read the highlight
+dynamite-tts toggle-mode     # Verbatim → Summary → Explain
+dynamite-tts stop | settings | ping | quit
+dynamite-tts --speak "Hello" # read some text
 ```
 
-### 2. Publish Self-Contained Executable
-```powershell
-./windows/publish.ps1
+## Files and privacy
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Settings | `%AppData%\DynamiteTts\settings.json` | `~/Library/Application Support/DynamiteTTS/settings.json` | `~/.config/dynamite-tts/settings.json` |
+| Models, voices, Lemonade | `%LocalAppData%\DynamiteTts` | `~/Library/Application Support/DynamiteTTS` | `~/.local/share/dynamite-tts` |
+| Log | `%LocalAppData%\DynamiteTts\logs\dynamite.log` | `~/Library/Logs/DynamiteTTS/dynamite.log` | `~/.local/state/dynamite-tts/dynamite.log` |
+
+Nothing you highlight is sent over the network or written to disk. The only downloads are the Phonon model (if it didn't come with the app), voices you choose, and, if you use them, Lemonade's chat model. Downloads come from Hugging Face, pinned to fixed versions, and the model files are checked against SHA-256 hashes.
+
+## Troubleshooting
+
+- **Nothing happens when I press the shortcut.** Another app may own the same keys; Dynamite says so when it starts. Pick another shortcut in Settings → Shortcuts. On Linux outside GNOME, bind `dynamite-tts speak` in your desktop's keyboard settings.
+- **"No text selected" on macOS.** Allow Dynamite TTS under System Settings → Privacy & Security → Accessibility, then quit and reopen it.
+- **"No text selected" on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11).
+- **Summary or Explain says Lemonade isn't running.** Install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
+- **Something else.** The log (see above) records what the app did, without the text it read. Settings → General → Open folder takes you there.
+
+## Building from source
+
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup on each system, the checks CI runs, and the project's rules.
+
+You need [Rust](https://rustup.rs) 1.89 or newer. On Linux, also `pkg-config libgtk-3-dev libasound2-dev`.
+
+```bash
+cargo run --release     # build and run the app
+cargo test              # unit tests; no sound card or display needed
 ```
-The self-contained `DynamiteTts.exe` will be generated in `windows/artifacts/publish/`, together with the Kokoro `voices` folder (the Kokoro model is not bundled; the app downloads it when Kokoro is chosen), `dynamite_phonon.dll` (built with `cargo` when it is on the PATH) and `models\phonon-31m-en` (downloaded during publish when missing; keep a copy in the repo root under `models/phonon-31m-en` to skip the download). `windows/publish.ps1` also writes `windows/artifacts/DynamiteTts-win-x64-<version>.zip` and, when [Inno Setup](https://jrsoftware.org/isinfo.php) is installed, `windows/artifacts/DynamiteTts-Setup-v<version>.exe`.
 
----
+Release packages:
 
-## Tray Menu Actions
+```bash
+./packaging/windows/build.ps1           # target/windows: zip, plus the installer if Inno Setup 6 is installed
+./packaging/macos/package-app.sh --zip  # target/macos: DynamiteTTS.app and its zip
+./packaging/linux/package.sh            # target/linux: the tarball
+```
 
-- **Stop (Esc):** Instantly halts current audio playback and cancels pending synthesis.
-- **Settings... (Default / Double Click):** Opens the configuration window.
-- **Refresh Models:** Queries Lemonade Server for newly installed or downloaded TTS models.
-- **Exit:** Completely shuts down Dynamite TTS, cleans up tray icons, unregisters hotkeys, and releases resources.
+To make a release, set the version in `Cargo.toml` and push a `v` tag (for example `v0.2.0`): the **Release** workflow tests and builds all three packages and publishes them. **CI** runs clippy and the tests on Windows, macOS and Linux for every pull request.
+
+Some checks render images instead of needing a screen: `cargo test -- --ignored` writes the Settings pages, the status pills and an EQ benchmark to `target/`, and `cargo run --example make_icons` regenerates every icon from `assets/logo.png` (with previews in `target/icon-preview`).
+
+<details>
+<summary>Source layout</summary>
+
+```
+src/
+├── main.rs          command line: start the app, or send a command to the running one
+├── app.rs           event loop (tao): tray, shortcuts, status pill, control commands
+├── speech.rs        sanitize → Summary/Explain → Phonon → player; newer requests cancel older ones
+├── phonon.rs        in-process Phonon (ptts): pinned, hash-checked model download, voices, speed
+├── voices.rs        the Phonon voice catalogue (assets/phonon-voices.jsonl)
+├── audio.rs         playback (cpal): resampling, back-pressure, live level, stop chime, devices
+├── eq.rs            the three-band tone control
+├── lemonade.rs      Lemonade client: health, starting the server, model load/pull, chat
+├── selection/       reading the highlight: Ctrl+C on Windows, Accessibility/Cmd+C on macOS, primary selection on Linux
+├── status.rs        the status pill (Windows, macOS) and notifications (Linux)
+├── tray.rs          tray icon and menu
+├── settings.rs      settings and their JSON file (reads the 0.1.x formats too)
+├── settings_ui.rs   the Settings window (eframe), run as `dynamite-tts --settings-window`
+├── hotkey.rs        shortcut parsing: storage form, global-hotkey, GTK accelerators
+├── gnome.rs         GNOME custom shortcuts
+├── control.rs       single-instance lock and the local control socket / named pipe
+├── autostart.rs     start at login: Run key, LaunchAgent, XDG autostart
+├── text.rs          Markdown and URL cleanup, chunking, Summary/Explain prompts
+└── applog.rs, paths.rs
+examples/make_icons.rs   regenerates the icons from the logo
+packaging/               Windows installer, macOS app bundle, Linux tarball and scripts
+assets/                  logo, icons, voice catalogue
+docs/                    images and engine measurements
+```
+</details>
+
+## Credits and license
+
+Dynamite TTS is MIT-licensed (see [LICENSE](LICENSE)). It speaks with [Phonon](https://github.com/gradium-ai/xn-ptts) by Gradium (the runtime and the bundled 31M English model are Apache 2.0; the 40M multilingual checkpoints are CC BY-NC and not bundled), and uses [Lemonade Server](https://lemonade-server.ai) by AMD for Summary and Explain.

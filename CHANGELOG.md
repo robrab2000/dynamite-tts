@@ -1,0 +1,29 @@
+# Changelog
+
+The release workflow publishes the section for each tag as that release's notes.
+
+## v0.2.0
+
+A rewrite: one Rust app for Windows, macOS and Linux, replacing the separate C#, Swift and Python apps.
+
+### New
+
+- **Tone control.** A three-band EQ (Settings → Voice) with presets (Flat, Warm, Clear, Bright, Soft) or your own Low / Mid / High settings. Changes are heard straight away, even mid-sentence, with no added latency.
+- **A new status pill.** It fades in and out, shows an orange ripple while thinking and blue bars that follow the voice while speaking, and stops speech when clicked. Choose Off, Minimal, Standard or Detailed in Settings → General, with a Preview button.
+- **A new logo and icons.** The tray icon is grey when ready, orange while thinking and blue while speaking, with the fuse lit only while it's busy.
+- **A redesigned Settings window** with Voice, Modes, Shortcuts and General pages, a folder picker for the Phonon model, and changes saved as you make them.
+- **The same features everywhere.** Shortcuts you can rebind, start at login, the stop sound and the command line now work alike on all three systems.
+
+### Changed
+
+- **Phonon is the only voice engine.** Kokoro has been removed, including on Windows its 325 MB model and CUDA support; the installer removes the old files. Lemonade is now needed only for Summary and Explain.
+- On macOS the status pill sits just under the menu bar (and the notch), with rounded corners.
+- Choosing Settings… while Settings is open brings the window to the front.
+- The tray menu is now Mode, Settings… and Quit; stop speech with the shortcut or by clicking the pill.
+
+### Upgrading
+
+- Windows: run the new installer over the old one. It keeps the install folder, Start menu entry, login item and settings.
+- Linux: run the new `install.sh`; your settings carry over and the GNOME shortcuts are updated to the new app.
+- macOS: replace the app. Settings start fresh.
+- x86-64 builds need a CPU with AVX2 (about 2013 or newer).

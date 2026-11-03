@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dynamite TTS
+Comment=Highlight text anywhere and hear it read aloud, 100% on-device
+Exec=dynamite-tts
+Icon=dynamite-tts
+Terminal=false
+Categories=Utility;Accessibility;Audio;
+Keywords=speech;tts;read aloud;phonon;lemonade;
+StartupNotify=false
+X-GNOME-UsesNotifications=true
