@@ -19,8 +19,16 @@ const GRAPHIC: (u32, u32, u32, u32) = (400, 110, 1120, 1035);
 /// Background pixels are at most this bright; the cut-out fades them to transparent.
 const BACKGROUND: f32 = 48.0;
 
-const WORKING: [u8; 3] = [0xff, 0x9f, 0x0a];
-const SPEAKING: [u8; 3] = [0x30, 0xd1, 0x58];
+/// How the tray recolours the bubble.s waveform and sound waves for each state.
+#[derive(Clone, Copy)]
+enum Waves {
+    /// Ready: a quiet slate grey.
+    Grey,
+    /// Working: the logo.s own blue.
+    Blue,
+    /// Speaking: green.
+    Green,
+}
 
 fn main() {
     let source = std::env::args().nth(1).unwrap_or_else(|| "assets/logo.png".into());
@@ -31,9 +39,9 @@ fn main() {
     let out = Path::new("assets/icons");
 
     let tray = resize(&pad(&graphic, 0.04), 128);
-    tray.save(out.join("idle.png")).unwrap();
-    with_badge(&tray, WORKING).save(out.join("active.png")).unwrap();
-    with_badge(&tray, SPEAKING).save(out.join("speaking.png")).unwrap();
+    recolor_waves(&tray, Waves::Grey).save(out.join("idle.png")).unwrap();
+    recolor_waves(&tray, Waves::Blue).save(out.join("active.png")).unwrap();
+    recolor_waves(&tray, Waves::Green).save(out.join("speaking.png")).unwrap();
 
     let app = app_icon(&graphic, 1024);
     resize(&app, 512).save(out.join("app.png")).unwrap();
@@ -147,39 +155,62 @@ fn resize(img: &RgbaImage, side: u32) -> RgbaImage {
     out
 }
 
-/// Source-over blend of `color` with coverage `alpha` onto `p`.
-fn blend(p: &mut Rgba<u8>, color: [u8; 3], alpha: f32) {
-    let src_a = alpha;
-    let dst_a = p.0[3] as f32 / 255.0;
-    let out_a = src_a + dst_a * (1.0 - src_a);
-    if out_a <= 0.0 {
-        return;
-    }
-    for (channel, &src) in p.0[..3].iter_mut().zip(&color) {
-        let v = (src as f32 * src_a + *channel as f32 * dst_a * (1.0 - src_a)) / out_a;
-        *channel = v.round() as u8;
-    }
-    p.0[3] = (out_a * 255.0).round() as u8;
-}
-
-/// A status dot in the top-left corner (the graphic leaves it empty), with a dark ring so
-/// it reads on light and dark menu bars.
-fn with_badge(img: &RgbaImage, color: [u8; 3]) -> RgbaImage {
+/// Recolours the blue of the bubble's waveform and sound waves, keeping each pixel's
+/// brightness and the logo's gradient. Nothing else in the graphic is blue: the dynamite is
+/// red, the spark yellow, the bubble white and the fuse a desaturated grey.
+fn recolor_waves(img: &RgbaImage, waves: Waves) -> RgbaImage {
     let mut out = img.clone();
-    let side = img.width() as f32;
-    let (cx, cy, r) = (side * 0.17, side * 0.17, side * 0.15);
-    for (x, y, p) in out.enumerate_pixels_mut() {
-        let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
-        let ring = (r + 0.5 - d).clamp(0.0, 1.0);
-        if ring > 0.0 {
-            blend(p, [0x14, 0x14, 0x18], ring);
+    for p in out.pixels_mut() {
+        if p.0[3] == 0 {
+            continue;
         }
-        let dot = (r * 0.74 + 0.5 - d).clamp(0.0, 1.0);
-        if dot > 0.0 {
-            blend(p, color, dot);
+        let (h, s, v) = to_hsv(p.0[0], p.0[1], p.0[2]);
+        if !(185.0..=255.0).contains(&h) || s < 0.35 || v < 0.2 {
+            continue;
         }
+        let (h, s, v) = match waves {
+            Waves::Blue => continue,
+            Waves::Grey => (h, s * 0.12, v * 0.78),
+            // Shift by the same amount everywhere so the logo's light-to-dark gradient survives.
+            Waves::Green => (h - 85.0, s * 0.95, v * 0.92),
+        };
+        let (r, g, b) = from_hsv(h, s, v);
+        p.0[..3].copy_from_slice(&[r, g, b]);
     }
     out
+}
+
+fn to_hsv(r: u8, g: u8, b: u8) -> (f32, f32, f32) {
+    let (r, g, b) = (r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
+    let max = r.max(g).max(b);
+    let delta = max - r.min(g).min(b);
+    let h = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * ((g - b) / delta).rem_euclid(6.0)
+    } else if max == g {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    };
+    (h, if max == 0.0 { 0.0 } else { delta / max }, max)
+}
+
+fn from_hsv(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+    let c = v * s;
+    let h = h.rem_euclid(360.0) / 60.0;
+    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = v - c;
+    let to = |u: f32| ((u + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    (to(r), to(g), to(b))
 }
 
 /// The graphic on a dark rounded square with a soft top-down gradient.
