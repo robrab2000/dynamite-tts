@@ -399,7 +399,7 @@ mod pill {
             if let Some(monitor) = self.window.current_monitor().or_else(|| self.window.primary_monitor()) {
                 let (mpos, msize) = (monitor.position(), monitor.size());
                 // Below the menu bar on macOS; just under the top edge on Windows.
-                let top = if cfg!(target_os = "macos") { 36.0 } else { 16.0 } * monitor.scale_factor();
+                let top = if cfg!(target_os = "macos") { 41.0 } else { 16.0 } * monitor.scale_factor();
                 let x = mpos.x + (msize.width as i32 - size.0 as i32) / 2;
                 self.window.set_outer_position(PhysicalPosition::new(x, mpos.y + top as i32));
             }

@@ -16,7 +16,6 @@ const SAMPLE: &str = "Hello! This is how Dynamite TTS sounds with these settings
 
 /// Dynamite orange, used for the selected page, toggles, sliders and the main button.
 const ACCENT: Color32 = Color32::from_rgb(0xf2, 0x6b, 0x2a);
-const GOOD: Color32 = Color32::from_rgb(0x34, 0xc7, 0x59);
 const SIDEBAR_WIDTH: f32 = 190.0;
 const CONTROL_WIDTH: f32 = 260.0;
 
@@ -140,9 +139,6 @@ enum Recording {
 }
 
 struct Shared {
-    /// Whether the tray app answered the last ping, and its phase.
-    running: Option<bool>,
-    phase: String,
     message: String,
     models: Vec<String>,
     models_note: String,
@@ -158,7 +154,6 @@ struct SettingsApp {
     hotkey_error: String,
     devices: Vec<String>,
     shared: Arc<Mutex<Shared>>,
-    last_ping: Instant,
     raise_seen: Option<SystemTime>,
     icon: Option<egui::TextureHandle>,
 }
@@ -180,13 +175,10 @@ impl SettingsApp {
             hotkey_error: String::new(),
             devices: audio::output_devices(),
             shared: Arc::new(Mutex::new(Shared {
-                running: None,
-                phase: String::new(),
                 message: String::new(),
                 models: Vec::new(),
                 models_note: String::new(),
             })),
-            last_ping: Instant::now() - Duration::from_secs(10),
             raise_seen,
             icon: None,
         };
@@ -214,26 +206,6 @@ impl SettingsApp {
             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
             s.models = models;
             s.models_note = note;
-        });
-    }
-
-    fn ping(&mut self) {
-        if self.last_ping.elapsed() < Duration::from_millis(1000) {
-            return;
-        }
-        self.last_ping = Instant::now();
-        let shared = self.shared.clone();
-        std::thread::spawn(move || {
-            let reply = control::send("ping");
-            let phase = reply
-                .as_deref()
-                .and_then(|r| r.split(" mode=").next())
-                .and_then(|r| r.strip_prefix("ok phase="))
-                .unwrap_or("")
-                .to_string();
-            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
-            s.running = Some(reply.is_some());
-            s.phase = phase;
         });
     }
 
@@ -351,22 +323,6 @@ impl SettingsApp {
                 self.page = page;
             }
         }
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-            ui.add_space(14.0);
-            let (running, phase) = {
-                let s = self.shared();
-                (s.running, s.phase.clone())
-            };
-            let (color, text) = match running {
-                Some(true) => (GOOD, if phase.is_empty() { "Running".to_string() } else { phase }),
-                Some(false) => (ui.visuals().weak_text_color(), "Not running".to_string()),
-                None => (ui.visuals().weak_text_color(), "Checking…".to_string()),
-            };
-            status_chip(ui, color, &text).on_hover_text(match running {
-                Some(false) => "Start Dynamite TTS to use these settings. Changes are saved either way.",
-                _ => "The Dynamite TTS tray app",
-            });
-        });
     }
 
     fn content(&mut self, ui: &mut egui::Ui) {
@@ -705,22 +661,6 @@ fn nav_item(ui: &mut egui::Ui, page: Page, selected: bool) -> egui::Response {
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn status_chip(ui: &mut egui::Ui, color: Color32, text: &str) -> egui::Response {
-    egui::Frame::new()
-        .fill(ui.visuals().faint_bg_color)
-        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-        .corner_radius(CornerRadius::same(13))
-        .inner_margin(Margin::symmetric(10, 5))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (dot, _) = ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
-                ui.painter().circle_filled(dot.center(), 4.5, color);
-                ui.label(RichText::new(text).small());
-            });
-        })
-        .response
-}
-
 fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let visuals = ui.visuals().clone();
     let fill = if visuals.dark_mode { Color32::from_gray(38) } else { Color32::from_gray(250) };
@@ -900,7 +840,6 @@ impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.check_raise(&ctx);
-        self.ping();
         self.record_hotkey(&ctx);
         self.window(ui);
         self.save_if_due();
