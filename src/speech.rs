@@ -56,6 +56,11 @@ impl Speech {
         self.phase.as_deref()
     }
 
+    /// Sets the tone control (gains in dB).
+    pub fn set_eq(&self, low_db: f32, mid_db: f32, high_db: f32) {
+        self.player.set_eq(low_db, mid_db, high_db);
+    }
+
     /// Current playback loudness (0-1), for the status pill.
     pub fn level(&self) -> f32 {
         self.player.level()

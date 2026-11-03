@@ -363,6 +363,8 @@ impl App {
                 log!("launch at login failed: {e}");
             }
         }
+        let s = &self.settings;
+        self.speech.set_eq(s.eq_low_db, s.eq_mid_db, s.eq_high_db);
         self.bind_hotkeys();
         if let Some(s) = self.status.as_mut() {
             s.set_style(self.settings.status_style);

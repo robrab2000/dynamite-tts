@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SizedSample};
 
+use crate::eq::Eq;
 use crate::log;
 
 pub const SOURCE_RATE: u32 = 24_000;
@@ -32,6 +33,10 @@ struct State {
     broken: bool,
     /// Loudness of the last block the device played (RMS, 0-1), for the status pill's bars.
     level: f32,
+    /// The tone control, run on the 24 kHz speech before resampling.
+    eq: Eq,
+    /// Reused for the filtered copy of each block, so pushing never allocates once warm.
+    scratch: Vec<f32>,
 }
 
 impl State {
@@ -43,6 +48,7 @@ impl State {
         self.pos = 1.0;
         self.prev = 0.0;
         self.last_active = Instant::now();
+        self.eq.reset();
     }
 }
 
@@ -77,6 +83,8 @@ impl Player {
             last_active: Instant::now(),
             broken: false,
             level: 0.0,
+            eq: Eq::flat(SOURCE_RATE),
+            scratch: Vec::new(),
         }));
         let (tx, rx) = mpsc::channel();
         let thread_state = state.clone();
@@ -116,6 +124,11 @@ impl Player {
         if s.session != session.0 {
             return false;
         }
+        let mut filtered = std::mem::take(&mut s.scratch);
+        filtered.clear();
+        filtered.extend_from_slice(samples);
+        s.eq.process(&mut filtered);
+        let samples = &filtered[..];
         let step = SOURCE_RATE as f64 / s.device_rate as f64;
         let (mut pos, mut prev) = (s.pos, s.prev);
         // Linear interpolation; `prev` is input index 0, samples[i] is index i + 1.
@@ -135,7 +148,13 @@ impl Player {
         s.pos = pos - last;
         s.prev = prev;
         s.last_active = Instant::now();
+        s.scratch = filtered;
         true
+    }
+
+    /// Sets the tone control (gains in dB). Takes effect from the next block pushed.
+    pub fn set_eq(&self, low_db: f32, mid_db: f32, high_db: f32) {
+        self.lock().eq = Eq::new(SOURCE_RATE, low_db, mid_db, high_db);
     }
 
     /// No more audio is coming for `session`; it drains, then reports `drained`.

@@ -69,6 +69,7 @@ dynamite-tts --speak "Hello"
 
 - About 100 catalogue voices in English, French, German, Spanish and Portuguese, plus the model's built-in voice. Each downloads on first use (about 250 KB).
 - Speed maps onto Phonon's `duration_delta` condition, which covers about 0.67x–1.5x of its natural rate.
+- **Tone** (Settings → Voice) is a three-band EQ for voices that sound dull or shrill: presets Flat, Warm, Clear, Bright and Soft, or Low (220 Hz shelf), Mid (1.8 kHz peak) and High (5 kHz shelf) sliders of ±12 dB. Three biquad filters on the 24 kHz speech add no latency and cost about 2.3 ns a sample (10 minutes of speech in 34 ms); Flat skips them.
 - The bundled model is the English 31M checkpoint. For other languages, download a gated Phonon 40M checkpoint (CC BY-NC) from Hugging Face and set **Model folder** in Settings.
 - Measured on a Ryzen AI 9 HX 370 (Windows, this build): load 35 ms, first audio 15–40 ms, 11 s of speech rendered in 1.7 s on 4 threads. Older measurements are in [docs/FINDINGS-tts-backends.md](docs/FINDINGS-tts-backends.md).
 - x86-64 builds target x86-64-v3 (AVX2, roughly 2013 or newer CPUs), the same baseline as Gradium's own binaries. On Apple Silicon, `ptts` uses the Accelerate framework.

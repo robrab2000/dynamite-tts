@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Stroke, Vec2};
 
 use crate::hotkey::{Hotkey, canonical_key};
-use crate::settings::{ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, StatusStyle, Store};
+use crate::settings::{EqPreset, ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, StatusStyle, Store};
 use crate::{audio, autostart, control, lemonade, paths, voices};
 
 const SAMPLE: &str = "Hello! This is how Dynamite TTS sounds with these settings.";
@@ -384,6 +384,9 @@ impl SettingsApp {
                 });
             });
         });
+        ui.add_space(8.0);
+        section_label(ui, "Tone");
+        self.tone_card(ui);
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             if ui.add(accent_button("Test voice")).clicked() {
@@ -462,6 +465,49 @@ impl SettingsApp {
                 );
             }
         }
+    }
+
+    /// Three-band EQ: a preset row, then Low / Mid / High sliders. Moving a slider makes it Custom.
+    fn tone_card(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            let before = self.settings.eq_preset;
+            segmented(ui, &mut self.settings.eq_preset, &EqPreset::ALL.map(|p| (p, p.title())));
+            if self.settings.eq_preset != before {
+                if let Some([low, mid, high]) = self.settings.eq_preset.gains() {
+                    (self.settings.eq_low_db, self.settings.eq_mid_db, self.settings.eq_high_db) = (low, mid, high);
+                }
+            }
+            ui.label(RichText::new(eq_preset_hint(self.settings.eq_preset)).small().weak());
+            divider(ui);
+            let bands = [
+                ("Low", "Body and warmth, around 220 Hz.", 0),
+                ("Mid", "Presence and clarity, around 1.8 kHz.", 1),
+                ("High", "Air and sibilance, above 5 kHz.", 2),
+            ];
+            for (i, (title, hint, band)) in bands.into_iter().enumerate() {
+                if i > 0 {
+                    divider(ui);
+                }
+                let mut moved = false;
+                let gain = match band {
+                    0 => &mut self.settings.eq_low_db,
+                    1 => &mut self.settings.eq_mid_db,
+                    _ => &mut self.settings.eq_high_db,
+                };
+                row(ui, title, hint, |ui| {
+                    let max = crate::eq::MAX_DB;
+                    let slider = egui::Slider::new(gain, -max..=max)
+                        .step_by(0.5)
+                        .fixed_decimals(1)
+                        .suffix(" dB")
+                        .trailing_fill(false);
+                    moved = ui.add(slider).changed();
+                });
+                if moved {
+                    self.settings.eq_preset = EqPreset::Custom;
+                }
+            }
+        });
     }
 
     fn modes_page(&mut self, ui: &mut egui::Ui) {
@@ -622,6 +668,17 @@ impl SettingsApp {
             });
             ui.label(RichText::new(paths::log_file().display().to_string()).monospace().small().weak());
         });
+    }
+}
+
+fn eq_preset_hint(preset: EqPreset) -> &'static str {
+    match preset {
+        EqPreset::Flat => "The voice as the model makes it.",
+        EqPreset::Warm => "More body and a softer top, for thin or shrill voices.",
+        EqPreset::Clear => "Less boom, more presence and air, for dull or muffled voices.",
+        EqPreset::Bright => "Extra sparkle on top.",
+        EqPreset::Soft => "Takes the edge off harsh S and T sounds.",
+        EqPreset::Custom => "Your own settings. Pick a preset to start from one.",
     }
 }
 
@@ -867,7 +924,10 @@ mod tests {
         apply_style(&ctx);
         let mut app = SettingsApp::new();
         let expected: [(Page, &[&str]); 4] = [
-            (Page::Voice, &["Voice", "Speed", "Language", "Output device", "Model folder"]),
+            (
+                Page::Voice,
+                &["Voice", "Speed", "Language", "TONE", "Warm", "Low", "High", "Output device", "Model folder"],
+            ),
             (Page::Modes, &["Speak mode", "Verbatim", "Explain", "Chat model", "Server address"]),
             (Page::Shortcuts, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),
             (Page::General, &["Start at login", "Stop sound", "Log file"]),

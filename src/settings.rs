@@ -110,6 +110,56 @@ impl StatusStyle {
     }
 }
 
+/// Tone presets for the three-band EQ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EqPreset {
+    #[default]
+    Flat,
+    /// More body, softer top: for thin or shrill voices.
+    Warm,
+    /// Less boom, more presence and air: for dull or muffled voices.
+    Clear,
+    /// Extra sparkle on top.
+    Bright,
+    /// Takes the edge off harsh sibilance.
+    Soft,
+    /// Whatever the sliders say.
+    Custom,
+}
+
+impl EqPreset {
+    pub const ALL: [EqPreset; 6] =
+        [EqPreset::Flat, EqPreset::Warm, EqPreset::Clear, EqPreset::Bright, EqPreset::Soft, EqPreset::Custom];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            EqPreset::Flat => "Flat",
+            EqPreset::Warm => "Warm",
+            EqPreset::Clear => "Clear",
+            EqPreset::Bright => "Bright",
+            EqPreset::Soft => "Soft",
+            EqPreset::Custom => "Custom",
+        }
+    }
+
+    /// (low, mid, high) in dB; None for Custom.
+    pub fn gains(self) -> Option<[f32; 3]> {
+        Some(match self {
+            EqPreset::Flat => [0.0, 0.0, 0.0],
+            EqPreset::Warm => [3.0, 0.0, -3.0],
+            EqPreset::Clear => [-2.0, 2.5, 3.0],
+            EqPreset::Bright => [0.0, 1.0, 5.0],
+            EqPreset::Soft => [1.0, -1.5, -5.0],
+            EqPreset::Custom => return None,
+        })
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.title().eq_ignore_ascii_case(s.trim()))
+    }
+}
+
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:13305";
 pub const DEFAULT_CHAT_MODEL: &str = "Llama-3.2-1B-Instruct-GGUF";
 
@@ -123,6 +173,11 @@ pub struct Settings {
     /// Empty = the bundled or downloaded phonon-31m-en; otherwise a checkpoint folder.
     pub phonon_model_dir: String,
     pub speed: f64,
+    /// Tone: a preset, or Custom with the three gains below (dB, ±12).
+    pub eq_preset: EqPreset,
+    pub eq_low_db: f32,
+    pub eq_mid_db: f32,
+    pub eq_high_db: f32,
     pub speak_mode: SpeakMode,
     pub speak_hotkey: String,
     pub mode_hotkey: String,
@@ -145,6 +200,10 @@ impl Default for Settings {
             phonon_language: "en".into(),
             phonon_model_dir: String::new(),
             speed: 1.0,
+            eq_preset: EqPreset::Flat,
+            eq_low_db: 0.0,
+            eq_mid_db: 0.0,
+            eq_high_db: 0.0,
             speak_mode: SpeakMode::Verbatim,
             speak_hotkey: hotkey::DEFAULT_SPEAK.into(),
             mode_hotkey: hotkey::DEFAULT_MODE.into(),
@@ -241,6 +300,16 @@ impl Settings {
         if let Some(v) = f.number(&["speed"]) {
             s.speed = v;
         }
+        if let Some(p) = f.string(&["eq_preset"]).and_then(|v| EqPreset::parse(&v)) {
+            s.eq_preset = p;
+        }
+        for (key, slot) in
+            [("eq_low_db", &mut s.eq_low_db), ("eq_mid_db", &mut s.eq_mid_db), ("eq_high_db", &mut s.eq_high_db)]
+        {
+            if let Some(v) = f.number(&[key]) {
+                *slot = v as f32;
+            }
+        }
         if let Some(m) = f.string(&["speak_mode"]).and_then(|v| SpeakMode::parse(&v)) {
             s.speak_mode = m;
         }
@@ -285,6 +354,13 @@ impl Settings {
     }
 
     pub fn normalized(mut self) -> Settings {
+        // A preset owns the gains; only Custom keeps hand-set ones.
+        if let Some([low, mid, high]) = self.eq_preset.gains() {
+            (self.eq_low_db, self.eq_mid_db, self.eq_high_db) = (low, mid, high);
+        }
+        for g in [&mut self.eq_low_db, &mut self.eq_mid_db, &mut self.eq_high_db] {
+            *g = if g.is_finite() { (g.clamp(-crate::eq::MAX_DB, crate::eq::MAX_DB) * 2.0).round() / 2.0 } else { 0.0 };
+        }
         self.explain_sentence_count = self.explain_sentence_count.clamp(1, 8);
         self.speed = if self.speed.is_finite() { self.speed.clamp(0.25, 4.0) } else { 1.0 };
         self.phonon_language = match self.phonon_language.trim().to_ascii_lowercase() {
