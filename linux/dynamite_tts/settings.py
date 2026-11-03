@@ -62,6 +62,7 @@ class AppSettings:
     launch_at_login: bool = False
     show_status_notifications: bool = True
     play_sound_on_stop: bool = True
+    hotkey_stops_speech: bool = True
     explain_sentence_count: int = 3
     explain_audience: ExplainAudience = ExplainAudience.TECHNICAL
     chat_model: str = "Llama-3.2-1B-Instruct-GGUF"

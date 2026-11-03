@@ -519,6 +519,7 @@ public partial class SettingsWindow : Window
         ExplainSentenceCountSlider.Value = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
         ExplainSentenceCountValueTextBlock.Text = ((int)ExplainSentenceCountSlider.Value).ToString();
         PlaySoundOnStopCheckBox.IsChecked = settings.PlaySoundOnStop;
+        HotkeyStopsSpeechCheckBox.IsChecked = settings.HotkeyStopsSpeech;
         ShowStatusBubbleCheckBox.IsChecked = settings.ShowStatusBubble;
         LaunchAtStartupCheckBox.IsChecked = _startupService.IsStartupEnabled();
 
@@ -668,6 +669,7 @@ public partial class SettingsWindow : Window
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            HotkeyStopsSpeech = HotkeyStopsSpeechCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = LaunchAtStartupCheckBox.IsChecked == true,
             EngineMode = selectedEngine,
@@ -1101,6 +1103,7 @@ public partial class SettingsWindow : Window
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
             PlaySoundOnStop = PlaySoundOnStopCheckBox.IsChecked == true,
+            HotkeyStopsSpeech = HotkeyStopsSpeechCheckBox.IsChecked == true,
             ShowStatusBubble = ShowStatusBubbleCheckBox.IsChecked == true,
             RunAtStartup = isStartup,
             EngineMode = selectedEngine,

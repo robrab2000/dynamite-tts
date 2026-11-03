@@ -25,6 +25,7 @@ public class AppSettingsStoreTests : IDisposable
         Assert.Equal("kokoro-v1", settings.Model);
         Assert.Equal("coral", settings.Voice);
         Assert.True(settings.PlaySoundOnStop);
+        Assert.True(settings.HotkeyStopsSpeech);
     }
 
     [Fact]
@@ -42,7 +43,8 @@ public class AppSettingsStoreTests : IDisposable
             ExplainAudience = ExplainAudience.General,
             SpeakMode = SpeakMode.Explain,
             RunAtStartup = true,
-            PlaySoundOnStop = false
+            PlaySoundOnStop = false,
+            HotkeyStopsSpeech = false
         };
 
         store.Save(toSave);
@@ -57,6 +59,7 @@ public class AppSettingsStoreTests : IDisposable
         Assert.Equal(SpeakMode.Explain, loaded.SpeakMode);
         Assert.True(loaded.RunAtStartup);
         Assert.False(loaded.PlaySoundOnStop);
+        Assert.False(loaded.HotkeyStopsSpeech);
         Assert.DoesNotContain("SummaryModel", File.ReadAllText(_tempPath));
     }
 
@@ -77,6 +80,7 @@ public class AppSettingsStoreTests : IDisposable
         var store = new AppSettingsStore(_tempPath);
         var loaded = store.Current;
         Assert.Equal("legacy-chat-model", loaded.ChatModel);
+        Assert.True(loaded.HotkeyStopsSpeech);
 
         store.Save(loaded);
         var savedJson = File.ReadAllText(_tempPath);

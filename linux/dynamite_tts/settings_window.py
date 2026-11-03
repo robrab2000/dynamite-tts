@@ -222,6 +222,7 @@ class SettingsWindow(Gtk.Window):
         for attr, label in (
             ("show_status_notifications", "Show status notifications"),
             ("play_sound_on_stop", "Play a sound when speech is stopped"),
+            ("hotkey_stops_speech", "Speak hotkey stops speech instead of reading a new selection"),
             ("launch_at_login", "Launch at login"),
         ):
             check = Gtk.CheckButton(label=label)

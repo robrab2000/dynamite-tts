@@ -34,9 +34,14 @@ class SpeechSession:
         self._stream_finished = False
         self._received_audio = False
         self._kokoro_backend_installed = False
+        self._current_phase: str | None = None
         self.player.on_drained = lambda: GLib.idle_add(self._drained)
 
     # -- public ----------------------------------------------------------------
+    @property
+    def is_busy(self) -> bool:
+        return self._current_phase is not None
+
     def speak(self, raw: str, context: str | None = None, mode: SpeakMode | None = None) -> None:
         text = textutil.sanitize(raw)
         if not text:
@@ -51,6 +56,9 @@ class SpeechSession:
             f"speak chars={len(text)} mode={active_mode.value} engine={current.engine.value} "
             f"voice={current.phonon_voice if current.uses_phonon else current.voice}"
         )
+        # Mark busy before the worker starts, so a second shortcut stops this request
+        # instead of racing a phase that has not been reported yet.
+        self._phase("Starting…")
         threading.Thread(
             target=self._run_guarded, args=(text, context, active_mode, token), name="speech", daemon=True
         ).start()
@@ -257,6 +265,7 @@ class SpeechSession:
         GLib.idle_add(report)
 
     def _phase(self, phase: str | None) -> None:
+        self._current_phase = phase
         if self.on_phase:
             self.on_phase(phase)
 

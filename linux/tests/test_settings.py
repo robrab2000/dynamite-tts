@@ -55,6 +55,13 @@ class SettingsTests(unittest.TestCase):
         self.assertLess(names.index("Easton"), names.index("Léa") if "Léa" in names else len(names))
         self.assertEqual(len(names), len(set(names)))
 
+    def test_hotkey_stops_speech_defaults_on_and_persists(self):
+        self.assertTrue(AppSettings.from_json({"voice": "af_sky"}).hotkey_stops_speech)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            SettingsStore(path).update(lambda s: setattr(s, "hotkey_stops_speech", False))
+            self.assertFalse(SettingsStore(path).current.hotkey_stops_speech)
+
     def test_missing_file_gives_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(SettingsStore(Path(tmp) / "none.json").current, AppSettings())

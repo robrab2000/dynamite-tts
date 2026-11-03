@@ -149,6 +149,15 @@ public class SpeechOrchestrator : IDisposable
         UpdateState(TrayIconState.Idle);
     }
 
+    private void StopWithChime(AppSettings settings)
+    {
+        Stop();
+        if (settings.PlaySoundOnStop)
+        {
+            _audioService.PlayStopChime();
+        }
+    }
+
     public void ToggleSpeakMode()
     {
         var settings = _settingsStore.Current;
@@ -179,6 +188,13 @@ public class SpeechOrchestrator : IDisposable
         bool wasBusy = IsBusy;
         var clock = Stopwatch.StartNew();
 
+        if (wasBusy && settings.HotkeyStopsSpeech)
+        {
+            AppLog.Info("hotkey: stopping current speech");
+            StopWithChime(settings);
+            return;
+        }
+
         if (!wasBusy)
             UpdateState(TrayIconState.Capturing);
 
@@ -200,11 +216,7 @@ public class SpeechOrchestrator : IDisposable
         {
             if (wasBusy)
             {
-                Stop();
-                if (settings.PlaySoundOnStop)
-                {
-                    _audioService.PlayStopChime();
-                }
+                StopWithChime(settings);
             }
             else
             {
@@ -218,11 +230,7 @@ public class SpeechOrchestrator : IDisposable
         // 3. If currently busy and the selection hasn't changed, stop playback
         if (wasBusy && string.Equals(capturedText, _lastSpokenText, StringComparison.Ordinal))
         {
-            Stop();
-            if (settings.PlaySoundOnStop)
-            {
-                _audioService.PlayStopChime();
-            }
+            StopWithChime(settings);
             return;
         }
 

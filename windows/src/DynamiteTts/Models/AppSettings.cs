@@ -20,6 +20,7 @@ public class AppSettings
     public string AudioDeviceId { get; set; } = string.Empty; // Empty string = System Default Device
     public bool RunAtStartup { get; set; } = false;
     public bool PlaySoundOnStop { get; set; } = true;
+    public bool HotkeyStopsSpeech { get; set; } = true; // false = pressing the speak hotkey while busy reads the new selection instead
     public bool ShowStatusBubble { get; set; } = true; // status pill at the top of the screen while reading/synthesizing/speaking
     // Property names below keep their historical JSON names for settings.json compatibility.
     public string EngineMode { get; set; } = DefaultEngineMode; // "DirectML" = in-process Kokoro (CPU + CUDA), "Phonon" = in-process Phonon (CPU), "LemonadeServer" = HTTP
@@ -69,6 +70,7 @@ public class AppSettings
             AudioDeviceId = AudioDeviceId,
             RunAtStartup = RunAtStartup,
             PlaySoundOnStop = PlaySoundOnStop,
+            HotkeyStopsSpeech = HotkeyStopsSpeech,
             ShowStatusBubble = ShowStatusBubble,
             EngineMode = EngineMode,
             UseDirectMlAcceleration = UseDirectMlAcceleration,
