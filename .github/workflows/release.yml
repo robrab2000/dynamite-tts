@@ -9,126 +9,106 @@ permissions:
   contents: write
 
 jobs:
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install GTK bindings
-        run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7
-
-      - name: Test
-        working-directory: linux
-        run: python3 -m unittest discover -s tests -t . -v
-
-      - name: Package
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          mkdir -p artifacts
-          tar -czf "artifacts/DynamiteTts-linux-v${tag}.tar.gz" \
-            --exclude='__pycache__' \
-            linux/dynamite-tts linux/dynamite-tts.desktop linux/install.sh linux/install-lemonade.sh linux/install-phonon.sh \
-            linux/uninstall.sh linux/dynamite_tts linux/icons LICENSE README.md
-
-      - name: Upload Linux tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-tarball
-          path: artifacts/DynamiteTts-linux-v*.tar.gz
-
-  release:
-    needs: linux
+  windows:
     runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: windows
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Linux tarball
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-tarball
-          path: windows/artifacts
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "9.0.x"
-
-      - name: Setup Rust (Phonon engine shim)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            windows/native/phonon/target
-          key: phonon-${{ runner.os }}-${{ hashFiles('windows/native/phonon/Cargo.lock') }}
-
-      - name: Build Phonon engine shim
-        working-directory: windows/native/phonon
-        run: cargo build --release --locked
-
+            target
+          key: release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
-
-      - name: Restore
-        run: dotnet restore DynamiteTts.sln
-
       - name: Test
-        # Skip hardware-bound suites: CI runners have no audio devices, and Perf/E2E
-        # harnesses need local speakers + models that are gitignored (*.mp3 / *.onnx).
-        run: >
-          dotnet test DynamiteTts.sln -c Release --no-restore
-          --filter "Category!=Perf&FullyQualifiedName!~AudioPlaybackServiceTests&FullyQualifiedName!~PlayStopChime"
-
-      - name: Publish
+        run: cargo test --locked --release
+      - name: Build zip and installer
         shell: pwsh
-        run: ./publish.ps1
+        run: ./packaging/windows/build.ps1 -Version ("${{ github.ref_name }}".TrimStart("v"))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            target/windows/DynamiteTts-win-x64-v*.zip
+            target/windows/DynamiteTts-Setup-v*.exe
 
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - name: Test
+        run: cargo test --locked --release
+      - name: Build the app
+        run: ./packaging/macos/package-app.sh --zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: target/macos/DynamiteTTS-macos-arm64-v*.zip
+
+  linux:
+    # The oldest supported runner, so the binary runs on any newer glibc.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+      - name: Test
+        run: cargo test --locked --release
+      - name: Build the tarball
+        run: ./packaging/linux/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: target/linux/DynamiteTts-linux-x64-v*.tar.gz
+
+  publish:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
       - name: Publish GitHub Release
-        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          $zip = Get-ChildItem artifacts/DynamiteTts-win-x64-v*.zip | Select-Object -First 1
-          $setup = Get-ChildItem artifacts/DynamiteTts-Setup-v*.exe | Select-Object -First 1
-          $linux = Get-ChildItem artifacts/DynamiteTts-linux-v*.tar.gz | Select-Object -First 1
-          if (-not $zip) { throw "Release zip not found under artifacts/" }
-          if (-not $setup) { throw "Setup.exe not found under artifacts/ (is Inno Setup installed?)" }
-          if (-not $linux) { throw "Linux tarball not found under artifacts/" }
-
-          $tag = "${{ github.ref_name }}"
-          # Generic install/notes boilerplate. Prefer editing the published release body
-          # afterward so What's new can call out the real headline features for the tag.
-          $notes = @"
-          ## What's new
+          tag="${GITHUB_REF_NAME}"
+          ls -la artifacts
+          notes="## What's new
           _(Edit this section after publish with the headline features for this release.)_
 
           ## Install
-          Prefer **``$($setup.Name)``** — installs to ``%LocalAppData%\Programs\DynamiteTTS``, adds a Start Menu shortcut, optionally starts at sign-in, then launches the app.
-
-          Portable zip: ``$($zip.Name)`` (same files, no installer).
-
-          Linux: ``$($linux.Name)`` — unpack and run ``linux/install.sh`` (see the README's Linux section).
+          - **Windows:** \`DynamiteTts-Setup-${tag}.exe\` installs to \`%LocalAppData%\Programs\DynamiteTTS\` (portable: the \`win-x64\` zip).
+          - **macOS (Apple Silicon):** unzip \`DynamiteTTS-macos-arm64-${tag}.zip\` and move DynamiteTTS.app to Applications, then allow it under Privacy & Security → Accessibility.
+          - **Linux:** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
 
           ## Notes
-          - Builds are **unsigned**; SmartScreen may warn — More info → Run anyway.
-          - Requires 64-bit Windows 10 1809+ or Windows 11.
-          - Self-contained (no separate .NET install). The Phonon speech model is bundled so speech works on first launch; the Kokoro model downloads the first time Kokoro is chosen.
-          - Optional GPU acceleration may download the CUDA runtime (~1 GB) on first use.
-          - Summary and Explain modes need a local [Lemonade Server](https://lemonade-server.ai) install.
-          "@
-
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            # Existing release: upload assets only so manually edited What's new notes are preserved.
-            gh release upload $tag $setup.FullName $zip.FullName $linux.FullName --clobber
-          } else {
-            gh release create $tag $setup.FullName $zip.FullName $linux.FullName --title "Dynamite TTS $tag" --notes $notes
-          }
+          - Builds are unsigned; SmartScreen and Gatekeeper may warn.
+          - x86-64 builds need an AVX2 (x86-64-v3) CPU.
+          - The Phonon model is bundled, so Verbatim speech works offline. Kokoro, Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai)."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" artifacts/* --clobber
+          else
+            gh release create "$tag" artifacts/* --title "Dynamite TTS $tag" --notes "$notes"
+          fi

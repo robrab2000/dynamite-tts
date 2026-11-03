@@ -1,0 +1,12 @@
+# x86-64-v3 (AVX2, FMA, F16C) is the baseline Gradium's own Phonon wheels and CLI use. xn chooses
+# its quantized kernels from the compile-time target features, so a lower baseline costs the q8
+# path its AVX kernels. The app will not start on CPUs older than roughly 2013 (Haswell /
+# Excavator); drop these flags to build for such a machine.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64-v3"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v3"]
+
+# Apple Silicon needs no counterpart: every M-series CPU has the same NEON baseline the arm64
+# target already assumes, and `-C target-cpu=apple-m1` measured within noise of it on an M1 Max.

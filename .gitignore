@@ -1,56 +1,21 @@
-# Build results
-[Bb]in/
-[Oo]bj/
-artifacts/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+# Rust build output (also holds the packaged releases under target/windows, target/macos, target/linux)
+/target/
 
-# Visual Studio / VS Code
+# Model files (the app and packaging scripts download them)
+/models/
+*.gguf
+*.safetensors
+*.onnx
+
+# Test audio and logs
+*.mp3
+*.wav
+*.log
+
+# Editors and OS files
 .vs/
 .vscode/
 .idea/
-
-# Test audio artifacts
-*.mp3
-*.wav
-
-# Large ONNX / voice model downloads (experiment + local caches)
-*.onnx
-*.bin
-*.gguf
-*.safetensors
-windows/experiments/models/
-# Repo root only. A bare `models/` also hides windows/src/DynamiteTts/Models on a
-# case-insensitive checkout, which kept PhononVoice.cs out of the tree.
-/models/
-
-# Rust build output (Phonon shim)
-windows/native/phonon/target/
-!windows/experiments/**/*.md
-
-# macOS app build
-macos/**/.build/
-macos/**/*.app/
-DynamiteTTS-install.command
-DynamiteTTS-install.sh
-
-# OS files
 Thumbs.db
-ehthumbs.db
 Desktop.ini
-$RECYCLE.BIN/
 .DS_Store
-
-# Benchmark logs
-*.log
-windows/experiments/cuda-runtime/
-
-windows/experiments/bubble-shots/
-
-# Python
-__pycache__/
-*.pyc
-
-windows/experiments/settings-shots/
