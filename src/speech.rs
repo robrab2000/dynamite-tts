@@ -309,7 +309,8 @@ impl Worker {
                 &cancelled,
                 &mut |p| match p {
                     phonon::Progress::Downloading(f) => {
-                        let percent = (f * 100.0).floor() as u32;
+                        // Tens of percent: each phase change is logged and redrawn.
+                        let percent = (f * 10.0).floor() as u32 * 10;
                         if last_percent != Some(percent) {
                             last_percent = Some(percent);
                             self.phase(&format!("Downloading Phonon ({percent}%)…"));

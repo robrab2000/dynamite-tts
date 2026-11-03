@@ -30,7 +30,7 @@ cd DynamiteTts-linux-x64-v*/
 ./install.sh            # --no-apt to skip system packages, --no-lemonade to skip Lemonade
 ```
 
-The script installs the runtime packages with `apt` (GTK 3, AppIndicator, libxdo, ALSA, wl-clipboard, xclip), puts the app under `~/.local/share/dynamite-tts/app` with a launcher at `~/.local/bin/dynamite-tts`, installs Lemonade with its chat model, and starts the tray icon. Run `packaging/linux/install.sh` from a checkout to build from source instead (it needs [Rust](https://rustup.rs)). `./uninstall.sh` removes the app, and `--purge` also removes Lemonade and the models.
+The script installs the runtime packages with `apt` (GTK 3, AppIndicator, ALSA, wl-clipboard, xclip), puts the app under `~/.local/share/dynamite-tts/app` with a launcher at `~/.local/bin/dynamite-tts`, installs Lemonade with its chat model, and starts the tray icon. Run `packaging/linux/install.sh` from a checkout to build from source instead (it needs [Rust](https://rustup.rs)). `./uninstall.sh` removes the app, and `--purge` also removes Lemonade and the models.
 
 How Linux differs:
 
@@ -81,7 +81,7 @@ The log records timings and phases only, never the spoken text. Settings files w
 
 ## Building from source
 
-Needs [Rust](https://rustup.rs) 1.89 or later. On Linux you also need `pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev`.
+Needs [Rust](https://rustup.rs) 1.89 or later. On Linux you also need `pkg-config libgtk-3-dev libasound2-dev` (AppIndicator is loaded at runtime, so only its library is needed).
 
 ```bash
 cargo run --release          # run the tray app

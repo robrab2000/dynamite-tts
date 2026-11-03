@@ -43,8 +43,8 @@ if [[ "$(uname -m)" == "x86_64" ]] && ! grep -qw avx2 /proc/cpuinfo 2>/dev/null;
 fi
 
 echo "== System packages =="
-RUNTIME=(libgtk-3-0 libayatana-appindicator3-1 libxdo3 libasound2 wl-clipboard xclip curl)
-BUILD=(build-essential pkg-config libgtk-3-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev)
+RUNTIME=(libgtk-3-0 libayatana-appindicator3-1 libasound2 wl-clipboard xclip curl)
+BUILD=(build-essential pkg-config libgtk-3-dev libasound2-dev)
 PACKAGES=("${RUNTIME[@]}")
 [[ -z "${PREBUILT}" ]] && PACKAGES+=("${BUILD[@]}")
 if [[ "$SKIP_APT" -eq 1 ]]; then

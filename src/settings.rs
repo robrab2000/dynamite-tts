@@ -256,7 +256,9 @@ impl Settings {
         if let Some(h) = f.hotkey(&["mode_hotkey", "ModeToggleHotkey"]) {
             s.mode_hotkey = h;
         }
-        if let Some(v) = f.string(&["audio_device", "AudioDeviceId", "audioDeviceUID"]) {
+        // Only the name this app stores: the C# app saved WASAPI endpoint ids and the Swift app
+        // CoreAudio UIDs, which never match a device name, so those start on the default output.
+        if let Some(v) = f.string(&["audio_device"]) {
             s.audio_device = v;
         }
         if let Some(v) = f.bool(&["launch_at_login", "RunAtStartup"]) {
@@ -460,7 +462,8 @@ mod tests {
             "ModeToggleHotkey": {"Modifiers": 6, "Key": "M"},
             "SpeakMode": "Explain", "SummaryModel": "Qwen2.5-0.5B-Instruct",
             "RunAtStartup": true, "ShowStatusBubble": false, "EngineMode": "DirectML",
-            "PhononVoice": "Easton", "ExplainSentenceCount": 12
+            "PhononVoice": "Easton", "ExplainSentenceCount": 12,
+            "AudioDeviceId": "{0.0.0.00000000}.{e5582329-e8ab-424a-961e-152ddf011e76}"
         }));
         assert_eq!(s.base_url, "http://localhost:13305");
         assert_eq!(s.voice, "af_sky");
@@ -473,6 +476,7 @@ mod tests {
         assert!(!s.show_status);
         assert_eq!(s.engine, Engine::Kokoro);
         assert_eq!(s.phonon_voice, "Easton");
+        assert_eq!(s.audio_device, "", "an endpoint id is not a device name");
         assert_eq!(s.explain_sentence_count, 8);
     }
 
