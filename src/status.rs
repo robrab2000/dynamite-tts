@@ -9,6 +9,7 @@
 //! an app float a window without focus (GNOME draws the banner top-centre, where the pill sits
 //! elsewhere).
 
+#[cfg(any(windows, target_os = "macos"))]
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,8 +20,10 @@ pub enum Kind {
 }
 
 /// How long the pill takes to fade in, and again to fade out.
+#[cfg(any(windows, target_os = "macos"))]
 pub const FADE: Duration = Duration::from_millis(500);
 /// Frame interval while the pill is visible (the bars animate).
+#[cfg(any(windows, target_os = "macos"))]
 pub const FRAME: Duration = Duration::from_millis(33);
 
 #[cfg(any(windows, target_os = "macos"))]
