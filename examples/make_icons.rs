@@ -9,6 +9,8 @@
 //!   bolder fuse so it survives menu-bar size. The bubble's waveform and sound waves show the
 //!   state (grey when ready, orange while working, the logo's blue while speaking) and the
 //!   fuse is lit only while working or speaking.
+//! - assets/logo-transparent.png: the whole logo (with the wordmark) on transparency, for the
+//!   README.
 //! - assets/icons/app.png (512 px), app.ico and AppIcon.icns: the graphic on a dark rounded
 //!   square, for the executable, the installer, the macOS Dock and the Linux launcher.
 
@@ -37,7 +39,7 @@ fn main() {
     let logo = image::open(&source).unwrap_or_else(|e| panic!("{source}: {e}")).into_rgba8();
     assert_eq!(logo.dimensions(), (2000, 2000), "GRAPHIC is measured on the 2000 px logo");
     let (x, y, w, h) = GRAPHIC;
-    let graphic = trim(&cut_out(&imageops::crop_imm(&logo, x, y, w, h).to_image()));
+    let graphic = trim(&cut_out(&imageops::crop_imm(&logo, x, y, w, h).to_image(), false));
     let out = Path::new("assets/icons");
 
     // At menu-bar size the logo's fuse is a hairline that vanishes, so the tray draws it bolder.
@@ -58,6 +60,9 @@ fn main() {
         .save(preview.join("menu-bar.png"))
         .unwrap();
 
+    // The whole logo on transparency, for the README; trimmed to the artwork with a small margin.
+    pad(&trim(&cut_out(&logo, true)), 0.03).save("assets/logo-transparent.png").unwrap();
+
     let app = app_icon(&graphic, 1024);
     resize(&app, 512).save(out.join("app.png")).unwrap();
     write_ico(&app, &out.join("app.ico"));
@@ -69,7 +74,7 @@ fn main() {
 /// the artwork. Its alpha follows its brightness, so the spark's glow and anti-aliased edges
 /// fade out instead of keeping a black fringe. Dark parts inside the artwork (the fuse, the
 /// band) are not reachable and stay opaque.
-fn cut_out(img: &RgbaImage) -> RgbaImage {
+fn cut_out(img: &RgbaImage, holes: bool) -> RgbaImage {
     let (w, h) = img.dimensions();
     let bright = |p: &Rgba<u8>| p.0[..3].iter().copied().max().unwrap_or(0) as f32;
     let mut background = vec![false; (w * h) as usize];
@@ -97,6 +102,46 @@ fn cut_out(img: &RgbaImage) -> RgbaImage {
         }
         if py + 1 < h {
             stack.push((px, py + 1));
+        }
+    }
+    if holes {
+        // Black enclosed by the artwork (the insides of letters) can't be reached from the edge.
+        // Enclosed dark regions that are almost pure black are background too; dark artwork
+        // (the fuse, shading) is never that dark on average.
+        let mut seen = background.clone();
+        for start in 0..(w * h) as usize {
+            let (sx, sy) = ((start as u32) % w, (start as u32) / w);
+            if seen[start] || bright(img.get_pixel(sx, sy)) > BACKGROUND {
+                continue;
+            }
+            let (mut region, mut total) = (Vec::new(), 0.0f32);
+            let mut todo = vec![(sx, sy)];
+            while let Some((px, py)) = todo.pop() {
+                let idx = (py * w + px) as usize;
+                if seen[idx] || bright(img.get_pixel(px, py)) > BACKGROUND {
+                    continue;
+                }
+                seen[idx] = true;
+                region.push(idx);
+                total += bright(img.get_pixel(px, py));
+                if px > 0 {
+                    todo.push((px - 1, py));
+                }
+                if py > 0 {
+                    todo.push((px, py - 1));
+                }
+                if px + 1 < w {
+                    todo.push((px + 1, py));
+                }
+                if py + 1 < h {
+                    todo.push((px, py + 1));
+                }
+            }
+            if total / (region.len() as f32) < 14.0 {
+                for idx in region {
+                    background[idx] = true;
+                }
+            }
         }
     }
     let mut out = img.clone();

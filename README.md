@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Dynamite TTS" width="320">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-transparent.png">
+    <img src="assets/logo.png" alt="Dynamite TTS" width="320">
+  </picture>
 </p>
 
 <p align="center">
@@ -147,12 +150,6 @@ Nothing you highlight is sent over the network or written to disk. The only down
 - **"No text selected" on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11).
 - **Summary or Explain says Lemonade isn't running.** Install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
 - **Something else.** The log (see above) records what the app did, without the text it read. Settings → General → Open folder takes you there.
-
-## Upgrading from 0.1.x
-
-The app was rewritten in Rust as one program for all three systems, replacing the separate C#, Swift and Python apps. Your settings carry over (on Windows and Linux; macOS starts fresh), and the Windows installer upgrades the existing install in place, keeping its Start menu entry and login item.
-
-Phonon is now the only voice engine. Kokoro, with its 325 MB model and CUDA support on Windows, has been removed, and the installer cleans up its files. Lemonade is now needed only for Summary and Explain.
 
 ## Building from source
 
