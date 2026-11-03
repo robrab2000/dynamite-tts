@@ -10,6 +10,7 @@ if [[ -x "${EXE}" ]]; then
 fi
 rm -f "${HOME}/.local/bin/dynamite-tts" \
       "${HOME}/.local/share/applications/dynamite-tts.desktop" \
+      "${HOME}/.local/share/icons/hicolor/256x256/apps/dynamite-tts.png" \
       "${HOME}/.local/share/icons/hicolor/128x128/apps/dynamite-tts.png"
 rm -rf "${DATA}/app" "${XDG_CONFIG_HOME:-$HOME/.config}/dynamite-tts" "${XDG_STATE_HOME:-$HOME/.local/state}/dynamite-tts"
 if [[ "${1:-}" == "--purge" ]]; then

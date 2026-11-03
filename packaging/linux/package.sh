@@ -15,7 +15,7 @@ install -m 0755 "${ROOT}/target/release/dynamite-tts" "${STAGE}/bin/dynamite-tts
 "${ROOT}/packaging/fetch-phonon-model.sh" "${STAGE}/models/phonon-31m-en"
 cp "${ROOT}/packaging/linux/"{install.sh,uninstall.sh,install-lemonade.sh,dynamite-tts.desktop} "${STAGE}/"
 cp "${ROOT}/packaging/fetch-phonon-model.sh" "${STAGE}/"
-cp "${ROOT}/assets/icons/idle.png" "${STAGE}/dynamite-tts.png"
+cp "${ROOT}/assets/icons/app.png" "${STAGE}/dynamite-tts.png"
 cp "${ROOT}/LICENSE" "${ROOT}/README.md" "${STAGE}/"
 tar -czf "${ROOT}/target/linux/${NAME}.tar.gz" -C "${ROOT}/target/linux" "${NAME}"
 echo "Wrote target/linux/${NAME}.tar.gz"

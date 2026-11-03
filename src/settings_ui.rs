@@ -40,7 +40,7 @@ pub fn run() -> i32 {
         let _ = raise();
         return 0;
     }
-    let icon = crate::tray::decode(include_bytes!("../assets/icons/idle.png"))
+    let icon = crate::tray::decode(include_bytes!("../assets/icons/app.png"))
         .map(|(rgba, width, height)| egui::IconData { rgba, width, height });
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Dynamite TTS Settings")

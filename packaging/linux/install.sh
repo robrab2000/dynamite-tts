@@ -74,12 +74,13 @@ fi
 echo
 echo "== App files =="
 "${BIN}/dynamite-tts" quit >/dev/null 2>&1 || true
-mkdir -p "${APP}/bin" "${BIN}" "${HOME}/.local/share/applications" "${HOME}/.local/share/icons/hicolor/128x128/apps"
+mkdir -p "${APP}/bin" "${BIN}" "${HOME}/.local/share/applications" "${HOME}/.local/share/icons/hicolor/256x256/apps"
 install -m 0755 "${PREBUILT}" "${APP}/bin/dynamite-tts"
 ln -sf "${APP}/bin/dynamite-tts" "${BIN}/dynamite-tts"
-ICON="${ROOT}/assets/icons/idle.png"
+ICON="${ROOT}/assets/icons/app.png"
 [[ -f "${HERE}/dynamite-tts.png" ]] && ICON="${HERE}/dynamite-tts.png"
-cp "${ICON}" "${HOME}/.local/share/icons/hicolor/128x128/apps/dynamite-tts.png"
+cp "${ICON}" "${HOME}/.local/share/icons/hicolor/256x256/apps/dynamite-tts.png"
+rm -f "${HOME}/.local/share/icons/hicolor/128x128/apps/dynamite-tts.png"  # where 0.1.x put it
 sed "s|^Exec=.*|Exec=${APP}/bin/dynamite-tts|" "${HERE}/dynamite-tts.desktop" > "${HOME}/.local/share/applications/dynamite-tts.desktop"
 command -v update-desktop-database >/dev/null && update-desktop-database "${HOME}/.local/share/applications" 2>/dev/null || true
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true

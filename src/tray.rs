@@ -9,6 +9,8 @@ use crate::settings::SpeakMode;
 const IDLE_PNG: &[u8] = include_bytes!("../assets/icons/idle.png");
 const ACTIVE_PNG: &[u8] = include_bytes!("../assets/icons/active.png");
 const SPEAKING_PNG: &[u8] = include_bytes!("../assets/icons/speaking.png");
+/// The app icon (the graphic on a rounded square), for notifications.
+const APP_PNG: &[u8] = include_bytes!("../assets/icons/app.png");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Look {
@@ -33,13 +35,13 @@ fn icon(look: Look) -> Option<Icon> {
     Icon::from_rgba(rgba, w, h).ok()
 }
 
-/// The app icon as a PNG file on disk (for Linux notifications), written once.
+/// The app icon as a PNG file on disk (for Linux notifications), rewritten when the icon changes.
 #[allow(dead_code)]
 pub fn icon_file() -> Option<std::path::PathBuf> {
     let path = crate::paths::data_dir().join("icons").join("dynamite-tts.png");
-    if !path.is_file() {
+    if std::fs::read(&path).ok().as_deref() != Some(APP_PNG) {
         std::fs::create_dir_all(path.parent()?).ok()?;
-        std::fs::write(&path, IDLE_PNG).ok()?;
+        std::fs::write(&path, APP_PNG).ok()?;
     }
     Some(path)
 }
@@ -105,7 +107,7 @@ fn mode_label(mode: SpeakMode) -> String {
 mod tests {
     #[test]
     fn the_icons_decode() {
-        for png in [super::IDLE_PNG, super::ACTIVE_PNG, super::SPEAKING_PNG] {
+        for png in [super::IDLE_PNG, super::ACTIVE_PNG, super::SPEAKING_PNG, super::APP_PNG] {
             let (rgba, w, h) = super::decode(png).unwrap();
             assert_eq!(rgba.len(), (w * h * 4) as usize);
         }

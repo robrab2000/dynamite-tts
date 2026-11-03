@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Dynamite TTS" width="360">
+</p>
+
 # Dynamite TTS — Highlight-to-Speech for Windows, macOS, and Linux
 
 A fast, lightweight, and 100% private highlight-to-speech utility. Highlight text in any app, press `Ctrl+Shift+S`, and hear it read aloud. Press `Ctrl+Shift+M` to cycle **Verbatim → Summary → Explain**.
@@ -120,5 +124,5 @@ src/
 ├── text.rs          # Markdown/URL cleanup, chunking, Summary/Explain prompts
 └── applog.rs, paths.rs
 packaging/           # Windows installer, macOS .app, Linux tarball and install scripts
-assets/              # icons and the voice catalogue
+assets/              # logo, icons (regenerate with `cargo run --example make_icons`), voice catalogue
 ```
