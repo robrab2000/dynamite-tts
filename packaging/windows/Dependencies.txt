@@ -2,17 +2,17 @@ Dynamite TTS — what this installer includes
 
 INCLUDED (always)
 • Dynamite TTS tray app (one self-contained executable)
-• Phonon speech engine + the Phonon 31M English model (Gradium, Apache 2.0): the default local
-  voice, with ~100 downloadable voices (Verbatim mode works offline after install)
+• Phonon speech engine + the Phonon 31M English model (Gradium, Apache 2.0), with ~100
+  downloadable voices (Verbatim mode works offline after install)
 
 OPTIONAL (next page — you can opt out)
-• Lemonade Server (AMD) — needed for Summary and Explain modes and for the Kokoro voices.
-  Installed via winget if you leave the option checked. The small default chat model and the
-  Kokoro voice are downloaded later, the first time you use them (not during this Setup).
+• Lemonade Server (AMD) — needed only for Summary and Explain modes. Installed via winget if
+  you leave the option checked. The small default chat model is downloaded later, the first
+  time you use one of those modes (not during this Setup).
 
 Upgrading from 0.1.x
-• The in-process Kokoro engine (and its 325 MB model and CUDA support) is gone; choosing Kokoro
-  now speaks through Lemonade. Leftover Kokoro files in the install folder are removed.
+• The Kokoro engine (and its 325 MB model and CUDA support) is gone; Phonon is the only voice
+  engine. Leftover Kokoro files in the install folder are removed.
 
 Hardware notes
 • Dynamite TTS needs an x86-64-v3 processor (AVX2; Intel Haswell / AMD Excavator, 2013-2015 or

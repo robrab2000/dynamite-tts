@@ -4,9 +4,8 @@ A fast, lightweight, and 100% private highlight-to-speech utility. Highlight tex
 
 One Rust codebase builds the tray (menu-bar) app for all three platforms:
 
-- **Phonon** ([Gradium](https://github.com/gradium-ai/xn-ptts), Apache 2.0) speaks in-process on the CPU by default: no server, no GPU, first audio in tens of milliseconds, about 10x realtime.
-- **Kokoro** is the alternative voice engine, run through a local [Lemonade Server](https://lemonade-server.ai). Its backend and voice (about 340 MB) download the first time you pick it.
-- **Summary** and **Explain** send the highlight to Lemonade's local chat model, then speak the reply. The text never leaves the machine.
+- **Phonon** ([Gradium](https://github.com/gradium-ai/xn-ptts), Apache 2.0) speaks in-process on the CPU: no server, no GPU, first audio in tens of milliseconds, about 10x realtime.
+- **Summary** and **Explain** send the highlight to a local [Lemonade Server](https://lemonade-server.ai) chat model, then speak the reply. The text never leaves the machine.
 
 ## Install
 
@@ -14,9 +13,9 @@ Prebuilt downloads are on the [Releases](https://github.com/robrab2000/dynamite-
 
 ### Windows
 
-Run **`DynamiteTts-Setup-v*.exe`**. It installs to `%LocalAppData%\Programs\DynamiteTTS`, can start the app at sign-in, and can install Lemonade through winget (needed for Kokoro, Summary and Explain). The portable `win-x64` zip has the same files: keep `models\` next to `DynamiteTts.exe`.
+Run **`DynamiteTts-Setup-v*.exe`**. It installs to `%LocalAppData%\Programs\DynamiteTTS`, can start the app at sign-in, and can install Lemonade through winget (needed only for Summary and Explain). The portable `win-x64` zip has the same files: keep `models\` next to `DynamiteTts.exe`.
 
-Upgrading from 0.1.x keeps the install folder, the login item and your settings file. In-process Kokoro, with its 325 MB ONNX model and CUDA support, has been removed; picking Kokoro now speaks through Lemonade. The installer deletes the old Kokoro files.
+Upgrading from 0.1.x keeps the install folder, the login item and your settings file. The Kokoro engine, with its 325 MB ONNX model and CUDA support, has been removed: Phonon is the only voice engine. The installer deletes the old Kokoro files.
 
 ### macOS (Apple Silicon, macOS 14+)
 
@@ -49,7 +48,7 @@ How Linux differs:
 
 **Explain** opens by naming the selection and adapts to short terms versus longer passages. Settings controls its length (1–8 sentences) and audience (Technical or General). On macOS, when the highlight is short, the surrounding text of the focused field is sent with it so ambiguous words get the right sense.
 
-**Settings** saves changes as you make them: engine, voice, language, speed, output device, mode, chat model, Lemonade address, both shortcuts (click the button, then press the new shortcut), stop-sound, status display, and launch at login. **Test voice** speaks a sample through the running app.
+**Settings** saves changes as you make them: voice, language, speed, output device, mode, chat model, Lemonade address, both shortcuts (click the button, then press the new shortcut), stop-sound, status display, and launch at login. **Test voice** speaks a sample through the running app.
 
 The same binary is also a command-line client for the running app:
 
@@ -104,7 +103,7 @@ The `Release` workflow builds and publishes all three when a `v*` tag is pushed.
 src/
 ├── main.rs          # command line: start the app, or send a command to the running one
 ├── app.rs           # event loop (tao): tray, shortcuts, status, control commands
-├── speech.rs        # pipeline: sanitize → Summary/Explain → Phonon or Kokoro → player; generations cancel stale work
+├── speech.rs        # pipeline: sanitize → Summary/Explain → Phonon → player; generations cancel stale work
 ├── phonon.rs        # in-process Phonon (ptts): pinned, hash-checked model download, voices, speed, streaming
 ├── voices.rs        # Phonon voice catalogue (assets/phonon-voices.jsonl)
 ├── lemonade.rs      # Lemonade HTTP client: health, starting lemond, backends, load/pull, chat, streamed PCM

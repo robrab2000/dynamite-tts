@@ -6,13 +6,19 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use eframe::egui;
+use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Stroke, Vec2};
 
 use crate::hotkey::{Hotkey, canonical_key};
-use crate::settings::{Engine, ExplainAudience, KOKORO_VOICES, PHONON_LANGUAGES, Settings, SpeakMode, Store};
+use crate::settings::{ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, Store};
 use crate::{audio, autostart, control, lemonade, paths, voices};
 
 const SAMPLE: &str = "Hello! This is how Dynamite TTS sounds with these settings.";
+
+/// Dynamite orange, used for the selected page, toggles, sliders and the main button.
+const ACCENT: Color32 = Color32::from_rgb(0xf2, 0x6b, 0x2a);
+const GOOD: Color32 = Color32::from_rgb(0x34, 0xc7, 0x59);
+const SIDEBAR_WIDTH: f32 = 190.0;
+const CONTROL_WIDTH: f32 = 260.0;
 
 fn raise_file() -> PathBuf {
     paths::data_dir().join("raise-settings")
@@ -38,8 +44,8 @@ pub fn run() -> i32 {
         .map(|(rgba, width, height)| egui::IconData { rgba, width, height });
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Dynamite TTS Settings")
-        .with_inner_size([560.0, 720.0])
-        .with_min_inner_size([460.0, 420.0]);
+        .with_inner_size([760.0, 560.0])
+        .with_min_inner_size([640.0, 440.0]);
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
@@ -47,7 +53,10 @@ pub fn run() -> i32 {
     let result = eframe::run_native(
         "Dynamite TTS Settings",
         options,
-        Box::new(|_cc| Ok(Box::new(SettingsApp::new()) as Box<dyn eframe::App>)),
+        Box::new(|cc| {
+            apply_style(&cc.egui_ctx);
+            Ok(Box::new(SettingsApp::new()) as Box<dyn eframe::App>)
+        }),
     );
     drop(lock);
     match result {
@@ -59,6 +68,71 @@ pub fn run() -> i32 {
     }
 }
 
+/// Roomier spacing, rounder corners, and the accent colour, in both light and dark mode
+/// (egui follows the system theme).
+fn apply_style(ctx: &egui::Context) {
+    ctx.all_styles_mut(|style| {
+        style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+        style.spacing.button_padding = Vec2::new(12.0, 6.0);
+        style.spacing.interact_size.y = 30.0;
+        style.spacing.slider_width = CONTROL_WIDTH - 70.0;
+        style.spacing.combo_width = CONTROL_WIDTH;
+        for (text_style, size) in [
+            (egui::TextStyle::Body, 14.0),
+            (egui::TextStyle::Button, 14.0),
+            (egui::TextStyle::Small, 12.0),
+            (egui::TextStyle::Heading, 22.0),
+            (egui::TextStyle::Monospace, 13.0),
+        ] {
+            if let Some(font) = style.text_styles.get_mut(&text_style) {
+                font.size = size;
+            }
+        }
+        let v = &mut style.visuals;
+        let radius = CornerRadius::same(7);
+        for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+            w.corner_radius = radius;
+        }
+        v.widgets.noninteractive.corner_radius = radius;
+        v.selection.bg_fill = ACCENT;
+        v.selection.stroke = Stroke::new(1.5, Color32::WHITE);
+        v.slider_trailing_fill = true;
+        v.hyperlink_color = ACCENT;
+        v.window_corner_radius = CornerRadius::same(10);
+        v.menu_corner_radius = CornerRadius::same(8);
+    });
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Page {
+    Voice,
+    Modes,
+    Shortcuts,
+    General,
+}
+
+impl Page {
+    const ALL: [Page; 4] = [Page::Voice, Page::Modes, Page::Shortcuts, Page::General];
+
+    fn title(self) -> &'static str {
+        match self {
+            Page::Voice => "Voice",
+            Page::Modes => "Modes",
+            Page::Shortcuts => "Shortcuts",
+            Page::General => "General",
+        }
+    }
+
+    fn subtitle(self) -> &'static str {
+        match self {
+            Page::Voice => "How the highlight is read aloud. Everything runs on this computer.",
+            Page::Modes => "Read the highlight as it is, summarize it, or explain it first.",
+            Page::Shortcuts => "Keys that work from any app.",
+            Page::General => "Behaviour, start-up and diagnostics.",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Recording {
     Speak,
@@ -66,7 +140,10 @@ enum Recording {
 }
 
 struct Shared {
-    status: String,
+    /// Whether the tray app answered the last ping, and its phase.
+    running: Option<bool>,
+    phase: String,
+    message: String,
     models: Vec<String>,
     models_note: String,
 }
@@ -76,12 +153,14 @@ struct SettingsApp {
     settings: Settings,
     saved: Settings,
     dirty_since: Option<Instant>,
+    page: Page,
     recording: Option<Recording>,
     hotkey_error: String,
     devices: Vec<String>,
     shared: Arc<Mutex<Shared>>,
     last_ping: Instant,
     raise_seen: Option<SystemTime>,
+    icon: Option<egui::TextureHandle>,
 }
 
 impl SettingsApp {
@@ -96,16 +175,20 @@ impl SettingsApp {
             settings,
             store,
             dirty_since: None,
+            page: Page::Voice,
             recording: None,
             hotkey_error: String::new(),
             devices: audio::output_devices(),
             shared: Arc::new(Mutex::new(Shared {
-                status: "Checking…".into(),
+                running: None,
+                phase: String::new(),
+                message: String::new(),
                 models: Vec::new(),
                 models_note: String::new(),
             })),
             last_ping: Instant::now() - Duration::from_secs(10),
             raise_seen,
+            icon: None,
         };
         app.refresh_models();
         app
@@ -126,7 +209,7 @@ impl SettingsApp {
                 let note = if ids.is_empty() { "Lemonade has no models yet.".to_string() } else { String::new() };
                 (ids, note)
             } else {
-                (Vec::new(), "Lemonade is not running; it starts the first time Summary or Explain is used.".into())
+                (Vec::new(), "Lemonade isn't running. It starts the first time Summary or Explain is used.".into())
             };
             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
             s.models = models;
@@ -141,15 +224,16 @@ impl SettingsApp {
         self.last_ping = Instant::now();
         let shared = self.shared.clone();
         std::thread::spawn(move || {
-            let status = match control::send("ping") {
-                Some(reply) => reply
-                    .split_whitespace()
-                    .find_map(|w| w.strip_prefix("phase="))
-                    .map(|p| format!("Dynamite TTS is running · {p}"))
-                    .unwrap_or_else(|| "Dynamite TTS is running".into()),
-                None => "Dynamite TTS is not running; changes apply the next time it starts.".into(),
-            };
-            shared.lock().unwrap_or_else(|e| e.into_inner()).status = status;
+            let reply = control::send("ping");
+            let phase = reply
+                .as_deref()
+                .and_then(|r| r.split(" mode=").next())
+                .and_then(|r| r.strip_prefix("ok phase="))
+                .unwrap_or("")
+                .to_string();
+            let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
+            s.running = Some(reply.is_some());
+            s.phase = phase;
         });
     }
 
@@ -168,7 +252,14 @@ impl SettingsApp {
                 self.saved = normalized;
                 let _ = control::send("reload");
             }
-            Err(e) => self.shared().status = format!("Could not save settings: {e}"),
+            Err(e) => self.shared().message = format!("Could not save settings: {e}"),
+        }
+    }
+
+    fn save_now(&mut self) {
+        if self.dirty_since.is_some() {
+            self.dirty_since = Some(Instant::now() - Duration::from_secs(1));
+            self.save_if_due();
         }
     }
 
@@ -233,218 +324,71 @@ impl SettingsApp {
         let _ = control::send("resume-hotkeys");
     }
 
-    fn hotkey_row(&mut self, ui: &mut egui::Ui, label: &str, which: Recording) {
-        ui.label(label);
-        let current = match which {
-            Recording::Speak => &self.settings.speak_hotkey,
-            Recording::Mode => &self.settings.mode_hotkey,
-        };
-        let text = if self.recording == Some(which) {
-            "Press the new shortcut… (Esc cancels)".to_string()
-        } else {
-            Hotkey::parse(current).map(|h| h.display()).unwrap_or_else(|| current.clone())
-        };
-        if ui.button(text).clicked() {
-            if self.recording == Some(which) {
-                self.finish_recording();
-            } else {
-                self.start_recording(which);
+    // ---------------------------------------------------------------- layout
+
+    fn sidebar(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(18.0);
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            if self.icon.is_none() {
+                self.icon = crate::tray::decode(include_bytes!("../assets/icons/idle.png")).map(|(rgba, w, h)| {
+                    let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                    ui.ctx().load_texture("app-icon", image, egui::TextureOptions::LINEAR)
+                });
+            }
+            if let Some(icon) = &self.icon {
+                ui.add(egui::Image::new((icon.id(), Vec2::splat(34.0))));
+            }
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(RichText::new("Dynamite TTS").strong().size(16.0));
+                ui.label(RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).small().weak());
+            });
+        });
+        ui.add_space(18.0);
+        for page in Page::ALL {
+            if nav_item(ui, page, self.page == page).clicked() {
+                self.page = page;
             }
         }
-        ui.end_row();
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+            ui.add_space(14.0);
+            let (running, phase) = {
+                let s = self.shared();
+                (s.running, s.phase.clone())
+            };
+            let (color, text) = match running {
+                Some(true) => (GOOD, if phase.is_empty() { "Running".to_string() } else { phase }),
+                Some(false) => (ui.visuals().weak_text_color(), "Not running".to_string()),
+                None => (ui.visuals().weak_text_color(), "Checking…".to_string()),
+            };
+            status_chip(ui, color, &text).on_hover_text(match running {
+                Some(false) => "Start Dynamite TTS to use these settings. Changes are saved either way.",
+                _ => "The Dynamite TTS tray app",
+            });
+        });
     }
 
-    fn body(&mut self, ui: &mut egui::Ui) {
+    fn content(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.clone();
-        let status = self.shared().status.clone();
-        ui.label(egui::RichText::new(status).weak());
         ui.add_space(6.0);
-
-        section(ui, "Speech");
-        egui::Grid::new("speech").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            ui.label("Engine");
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut self.settings.engine, Engine::Phonon, Engine::Phonon.title());
-                ui.radio_value(&mut self.settings.engine, Engine::Kokoro, Engine::Kokoro.title());
-            });
-            ui.end_row();
-
-            if self.settings.engine == Engine::Phonon {
-                ui.label("Language");
-                let lang_label = PHONON_LANGUAGES
-                    .iter()
-                    .find(|(id, _)| *id == self.settings.phonon_language)
-                    .map_or(self.settings.phonon_language.clone(), |(_, l)| l.to_string());
-                egui::ComboBox::from_id_salt("lang").width(300.0).selected_text(lang_label).show_ui(ui, |ui| {
-                    for (id, label) in PHONON_LANGUAGES {
-                        ui.selectable_value(&mut self.settings.phonon_language, id.to_string(), *label);
-                    }
-                });
-                ui.end_row();
-
-                ui.label("Voice");
-                let voice_label =
-                    voices::find(&self.settings.phonon_voice).map_or(self.settings.phonon_voice.clone(), |v| v.label());
-                egui::ComboBox::from_id_salt("phonon_voice").width(300.0).selected_text(voice_label).show_ui(
-                    ui,
-                    |ui| {
-                        for v in voices::for_language(&self.settings.phonon_language) {
-                            let id = if v.is_default() { voices::DEFAULT_ID.to_string() } else { v.name.clone() };
-                            ui.selectable_value(&mut self.settings.phonon_voice, id, v.label());
-                        }
-                    },
-                );
-                ui.end_row();
-
-                ui.label("Model folder");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.settings.phonon_model_dir)
-                        .hint_text("empty = Phonon 31M English (bundled or downloaded once)")
-                        .desired_width(300.0),
-                );
-                ui.end_row();
-            } else {
-                ui.label("Voice");
-                let label = KOKORO_VOICES
-                    .iter()
-                    .find(|(id, _)| *id == self.settings.voice)
-                    .map_or(self.settings.voice.clone(), |(_, l)| l.to_string());
-                egui::ComboBox::from_id_salt("kokoro_voice").width(300.0).selected_text(label).show_ui(ui, |ui| {
-                    for (id, label) in KOKORO_VOICES {
-                        ui.selectable_value(&mut self.settings.voice, id.to_string(), *label);
-                    }
-                });
-                ui.end_row();
-            }
-
-            ui.label("Speed");
-            ui.add(egui::Slider::new(&mut self.settings.speed, 0.5..=2.0).step_by(0.05).suffix("x"));
-            ui.end_row();
-
-            ui.label("Output");
-            let device_label = if self.settings.audio_device.is_empty() {
-                "System default".to_string()
-            } else {
-                self.settings.audio_device.clone()
-            };
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("device").width(260.0).selected_text(device_label).show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.settings.audio_device, String::new(), "System default");
-                    for d in &self.devices {
-                        ui.selectable_value(&mut self.settings.audio_device, d.clone(), d);
-                    }
-                });
-                if ui.small_button("↻").on_hover_text("Refresh the device list").clicked() {
-                    self.devices = audio::output_devices();
-                }
-            });
-            ui.end_row();
-        });
-        if self.settings.engine == Engine::Phonon && !(0.67..=1.5).contains(&self.settings.speed) {
-            ui.label(egui::RichText::new("Phonon speaks between about 0.67x and 1.5x.").weak());
+        ui.heading(RichText::new(self.page.title()).strong());
+        ui.label(RichText::new(self.page.subtitle()).weak());
+        let message = self.shared().message.clone();
+        if !message.is_empty() {
+            ui.colored_label(ui.visuals().warn_fg_color, message);
         }
-        ui.horizontal(|ui| {
-            if ui.button("▶ Test voice").clicked() {
-                self.save_now();
-                if control::send(&format!("speak-text {SAMPLE}")).is_none() {
-                    self.shared().status = "Start Dynamite TTS to test the voice.".into();
-                }
-            }
-            if ui.button("■ Stop").clicked() {
-                let _ = control::send("stop");
-            }
-        });
-
-        section(ui, "Modes");
-        egui::Grid::new("modes").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            ui.label("Speak mode");
-            ui.horizontal(|ui| {
-                for mode in SpeakMode::ALL {
-                    ui.radio_value(&mut self.settings.speak_mode, mode, mode.title());
-                }
-            });
-            ui.end_row();
-
-            ui.label("Explain length");
-            ui.add(egui::Slider::new(&mut self.settings.explain_sentence_count, 1..=8).suffix(" sentences"));
-            ui.end_row();
-
-            ui.label("Explain for");
-            ui.horizontal(|ui| {
-                for a in [ExplainAudience::Technical, ExplainAudience::General] {
-                    ui.radio_value(&mut self.settings.explain_audience, a, a.title());
-                }
-            });
-            ui.end_row();
-
-            ui.label("Chat model");
-            let models = self.shared().models.clone();
-            ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt("chat")
-                    .width(260.0)
-                    .selected_text(self.settings.chat_model.clone())
-                    .show_ui(ui, |ui| {
-                        if !models.iter().any(|m| m.eq_ignore_ascii_case(&self.settings.chat_model)) {
-                            let current = self.settings.chat_model.clone();
-                            ui.selectable_value(&mut self.settings.chat_model, current.clone(), current);
-                        }
-                        for m in &models {
-                            ui.selectable_value(&mut self.settings.chat_model, m.clone(), m);
-                        }
-                    });
-                if ui.small_button("↻").on_hover_text("Ask Lemonade for its models").clicked() {
-                    self.refresh_models();
-                }
-            });
-            ui.end_row();
-
-            ui.label("Lemonade address");
-            ui.add(egui::TextEdit::singleline(&mut self.settings.base_url).desired_width(260.0));
-            ui.end_row();
-        });
-        let note = self.shared().models_note.clone();
-        if !note.is_empty() {
-            ui.label(egui::RichText::new(note).weak());
+        ui.add_space(8.0);
+        match self.page {
+            Page::Voice => self.voice_page(ui),
+            Page::Modes => self.modes_page(ui),
+            Page::Shortcuts => self.shortcuts_page(ui),
+            Page::General => self.general_page(ui),
         }
-
-        section(ui, "Shortcuts");
-        egui::Grid::new("keys").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-            self.hotkey_row(ui, "Speak selection", Recording::Speak);
-            self.hotkey_row(ui, "Change mode", Recording::Mode);
-        });
-        if !self.hotkey_error.is_empty() {
-            ui.colored_label(ui.visuals().warn_fg_color, &self.hotkey_error);
-        }
-        if cfg!(target_os = "linux") {
-            ui.label(
-                egui::RichText::new(
-                    "On GNOME these become custom shortcuts in Settings → Keyboard. Elsewhere, bind `dynamite-tts speak` and `dynamite-tts toggle-mode` yourself.",
-                )
-                .weak(),
-            );
-        }
-
-        section(ui, "Behaviour");
-        ui.checkbox(&mut self.settings.hotkey_stops_speech, "Pressing the speak shortcut while speaking stops speech");
-        ui.checkbox(&mut self.settings.play_sound_on_stop, "Play a sound when speech is stopped");
-        ui.checkbox(
-            &mut self.settings.show_status,
-            if cfg!(target_os = "linux") { "Show status notifications" } else { "Show the status pill while working" },
-        );
-        ui.checkbox(&mut self.settings.launch_at_login, "Start Dynamite TTS when I log in");
-
-        section(ui, "Diagnostics");
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(paths::log_file().display().to_string()).monospace().small());
-            if ui.small_button("Open folder").clicked() {
-                open_folder(&paths::log_dir());
-            }
-        });
-        ui.label(egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION"))).weak().small());
-
+        ui.add_space(12.0);
         if self.settings.launch_at_login != before.launch_at_login {
             if let Err(e) = autostart::apply(self.settings.launch_at_login) {
-                self.shared().status = format!("Could not change the login item: {e}");
+                self.shared().message = format!("Could not change the login item: {e}");
             }
         }
         if self.settings != before {
@@ -452,18 +396,410 @@ impl SettingsApp {
         }
     }
 
-    fn save_now(&mut self) {
-        if self.dirty_since.is_some() {
-            self.dirty_since = Some(Instant::now() - Duration::from_secs(1));
-            self.save_if_due();
+    fn voice_page(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            row(ui, "Voice", "About 100 voices; each downloads the first time you use it.", |ui| {
+                let label =
+                    voices::find(&self.settings.phonon_voice).map_or(self.settings.phonon_voice.clone(), |v| v.label());
+                egui::ComboBox::from_id_salt("phonon_voice").selected_text(label).height(360.0).show_ui(ui, |ui| {
+                    for v in voices::for_language(&self.settings.phonon_language) {
+                        let id = if v.is_default() { voices::DEFAULT_ID.to_string() } else { v.name.clone() };
+                        ui.selectable_value(&mut self.settings.phonon_voice, id, v.label());
+                    }
+                });
+            });
+            divider(ui);
+            row(ui, "Speed", "Phonon speaks between about 0.67x and 1.5x.", |ui| {
+                ui.add(
+                    egui::Slider::new(&mut self.settings.speed, 0.67..=1.5).step_by(0.01).fixed_decimals(2).suffix("×"),
+                );
+            });
+            divider(ui);
+            row(ui, "Language", "How numbers and abbreviations are read.", |ui| {
+                let label = PHONON_LANGUAGES
+                    .iter()
+                    .find(|(id, _)| *id == self.settings.phonon_language)
+                    .map_or(self.settings.phonon_language.clone(), |(_, l)| l.to_string());
+                egui::ComboBox::from_id_salt("lang").selected_text(label).show_ui(ui, |ui| {
+                    for (id, label) in PHONON_LANGUAGES {
+                        ui.selectable_value(&mut self.settings.phonon_language, id.to_string(), *label);
+                    }
+                });
+            });
+        });
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui.add(accent_button("Test voice")).clicked() {
+                self.save_now();
+                if control::send(&format!("speak-text {SAMPLE}")).is_none() {
+                    self.shared().message = "Start Dynamite TTS to test the voice.".into();
+                }
+            }
+            if ui.button("Stop").clicked() {
+                let _ = control::send("stop");
+            }
+        });
+        ui.add_space(8.0);
+        card(ui, |ui| {
+            row(ui, "Output device", "Where speech plays.", |ui| {
+                ui.horizontal(|ui| {
+                    if ui.small_button("Refresh").on_hover_text("Refresh the device list").clicked() {
+                        self.devices = audio::output_devices();
+                    }
+                    let label = if self.settings.audio_device.is_empty() {
+                        "System default".to_string()
+                    } else {
+                        self.settings.audio_device.clone()
+                    };
+                    egui::ComboBox::from_id_salt("device").width(CONTROL_WIDTH - 40.0).selected_text(label).show_ui(
+                        ui,
+                        |ui| {
+                            ui.selectable_value(&mut self.settings.audio_device, String::new(), "System default");
+                            for d in &self.devices {
+                                ui.selectable_value(&mut self.settings.audio_device, d.clone(), d);
+                            }
+                        },
+                    );
+                });
+            });
+            divider(ui);
+            row(
+                ui,
+                "Model folder",
+                "Leave empty for the bundled English model, or pick a Phonon 40M checkpoint.",
+                |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings.phonon_model_dir)
+                            .hint_text("Built-in (Phonon 31M English)")
+                            .desired_width(CONTROL_WIDTH),
+                    );
+                },
+            );
+        });
+    }
+
+    fn modes_page(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            let hint = format!(
+                "{} cycles through these from any app.",
+                Hotkey::parse(&self.settings.mode_hotkey)
+                    .map_or_else(|| self.settings.mode_hotkey.clone(), |h| h.display())
+            );
+            row(ui, "Speak mode", &hint, |ui| {
+                segmented(ui, &mut self.settings.speak_mode, &SpeakMode::ALL.map(|m| (m, m.title())));
+            });
+        });
+        ui.add_space(8.0);
+        section_label(ui, "Explain");
+        card(ui, |ui| {
+            row(ui, "Length", "Roughly how long an explanation runs.", |ui| {
+                ui.add(egui::Slider::new(&mut self.settings.explain_sentence_count, 1..=8).suffix(" sentences"));
+            });
+            divider(ui);
+            row(ui, "Written for", "Technical keeps the jargon; General avoids it.", |ui| {
+                segmented(
+                    ui,
+                    &mut self.settings.explain_audience,
+                    &[ExplainAudience::Technical, ExplainAudience::General].map(|a| (a, a.title())),
+                );
+            });
+        });
+        ui.add_space(8.0);
+        section_label(ui, "Lemonade (Summary and Explain)");
+        card(ui, |ui| {
+            let models = self.shared().models.clone();
+            row(ui, "Chat model", "The local model that writes summaries and explanations.", |ui| {
+                ui.horizontal(|ui| {
+                    if ui.small_button("Refresh").on_hover_text("Ask Lemonade for its models").clicked() {
+                        self.refresh_models();
+                    }
+                    egui::ComboBox::from_id_salt("chat")
+                        .width(CONTROL_WIDTH - 40.0)
+                        .selected_text(self.settings.chat_model.clone())
+                        .show_ui(ui, |ui| {
+                            if !models.iter().any(|m| m.eq_ignore_ascii_case(&self.settings.chat_model)) {
+                                let current = self.settings.chat_model.clone();
+                                ui.selectable_value(&mut self.settings.chat_model, current.clone(), current);
+                            }
+                            for m in &models {
+                                ui.selectable_value(&mut self.settings.chat_model, m.clone(), m);
+                            }
+                        });
+                });
+            });
+            divider(ui);
+            row(ui, "Server address", "Where Lemonade listens.", |ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.settings.base_url).desired_width(CONTROL_WIDTH));
+            });
+        });
+        let note = self.shared().models_note.clone();
+        if !note.is_empty() {
+            ui.label(RichText::new(note).small().weak());
         }
+    }
+
+    fn shortcuts_page(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            self.hotkey_row(ui, "Speak selection", "Reads the highlighted text.", Recording::Speak);
+            divider(ui);
+            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary and Explain.", Recording::Mode);
+        });
+        if !self.hotkey_error.is_empty() {
+            ui.colored_label(ui.visuals().warn_fg_color, &self.hotkey_error);
+        }
+        ui.label(
+            RichText::new(if cfg!(target_os = "linux") {
+                "Click a shortcut, then press the new keys. On GNOME these appear under Settings > Keyboard > Custom Shortcuts; elsewhere, bind `dynamite-tts speak` and `dynamite-tts toggle-mode` yourself."
+            } else {
+                "Click a shortcut, then press the new keys. Esc cancels."
+            })
+            .small()
+            .weak(),
+        );
+        ui.add_space(8.0);
+        card(ui, |ui| {
+            row(
+                ui,
+                "Shortcut stops speech",
+                "Pressing Speak while talking stops it, instead of reading the new highlight.",
+                |ui| {
+                    toggle(ui, &mut self.settings.hotkey_stops_speech);
+                },
+            );
+        });
+    }
+
+    fn hotkey_row(&mut self, ui: &mut egui::Ui, label: &str, hint: &str, which: Recording) {
+        let current = match which {
+            Recording::Speak => self.settings.speak_hotkey.clone(),
+            Recording::Mode => self.settings.mode_hotkey.clone(),
+        };
+        let recording = self.recording == Some(which);
+        let mut clicked = false;
+        row(ui, label, hint, |ui| {
+            clicked = if recording {
+                ui.add(accent_button("Press keys…")).clicked()
+            } else {
+                let hk = Hotkey::parse(&current);
+                keycaps(ui, &hk.map(|h| h.display()).unwrap_or(current)).clicked()
+            };
+        });
+        if clicked {
+            if recording {
+                self.finish_recording();
+            } else {
+                self.start_recording(which);
+            }
+        }
+    }
+
+    fn general_page(&mut self, ui: &mut egui::Ui) {
+        card(ui, |ui| {
+            row(ui, "Start at login", "Open Dynamite TTS when you sign in.", |ui| {
+                toggle(ui, &mut self.settings.launch_at_login);
+            });
+            divider(ui);
+            let (title, hint) = if cfg!(target_os = "linux") {
+                ("Status notifications", "Show what Dynamite is doing as a notification.")
+            } else {
+                ("Status pill", "A small pill at the top of the screen while working. Click it to stop.")
+            };
+            row(ui, title, hint, |ui| {
+                toggle(ui, &mut self.settings.show_status);
+            });
+            divider(ui);
+            row(ui, "Stop sound", "A short chime when speech is stopped.", |ui| {
+                toggle(ui, &mut self.settings.play_sound_on_stop);
+            });
+        });
+        ui.add_space(8.0);
+        section_label(ui, "Diagnostics");
+        card(ui, |ui| {
+            row(ui, "Log file", "Timings and phases only, never what was read.", |ui| {
+                if ui.button("Open folder").clicked() {
+                    open_folder(&paths::log_dir());
+                }
+            });
+            ui.label(RichText::new(paths::log_file().display().to_string()).monospace().small().weak());
+        });
     }
 }
 
-fn section(ui: &mut egui::Ui, title: &str) {
-    ui.add_space(10.0);
-    ui.label(egui::RichText::new(title).strong().size(16.0));
-    ui.separator();
+// -------------------------------------------------------------------- widgets
+
+fn nav_item(ui: &mut egui::Ui, page: Page, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 36.0), egui::Sense::click());
+    let visuals = ui.visuals();
+    if selected {
+        ui.painter().rect_filled(rect, 8, ACCENT.gamma_multiply(0.18));
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 8, visuals.widgets.hovered.weak_bg_fill);
+    }
+    let color = if selected { ACCENT } else { visuals.text_color() };
+    let font = egui::FontId::proportional(15.0);
+    if selected {
+        let bar = egui::Rect::from_center_size(rect.left_center() + Vec2::new(4.0, 0.0), Vec2::new(3.0, 16.0));
+        ui.painter().rect_filled(bar, 2, ACCENT);
+    }
+    ui.painter().text(rect.left_center() + Vec2::new(16.0, 0.0), egui::Align2::LEFT_CENTER, page.title(), font, color);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn status_chip(ui: &mut egui::Ui, color: Color32, text: &str) -> egui::Response {
+    egui::Frame::new()
+        .fill(ui.visuals().faint_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .corner_radius(CornerRadius::same(13))
+        .inner_margin(Margin::symmetric(10, 5))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (dot, _) = ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
+                ui.painter().circle_filled(dot.center(), 4.5, color);
+                ui.label(RichText::new(text).small());
+            });
+        })
+        .response
+}
+
+fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let visuals = ui.visuals().clone();
+    let fill = if visuals.dark_mode { Color32::from_gray(38) } else { Color32::from_gray(250) };
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, if visuals.dark_mode { Color32::from_gray(55) } else { Color32::from_gray(222) }))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(16, 12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+}
+
+fn section_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(RichText::new(text.to_uppercase()).small().strong().weak());
+}
+
+fn divider(ui: &mut egui::Ui) {
+    let stroke =
+        Stroke::new(1.0, if ui.visuals().dark_mode { Color32::from_gray(52) } else { Color32::from_gray(230) });
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter().hline(rect.x_range(), rect.center().y, stroke);
+}
+
+/// A title and a one-line description on the left, the control right-aligned.
+fn row(ui: &mut egui::Ui, title: &str, hint: &str, control: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        let text_width = (ui.available_width() - CONTROL_WIDTH - 24.0).max(160.0);
+        ui.vertical(|ui| {
+            ui.set_width(text_width);
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.label(RichText::new(title).strong());
+            ui.add(egui::Label::new(RichText::new(hint).small().weak()).wrap());
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control);
+    });
+}
+
+fn accent_button(text: &str) -> egui::Button<'_> {
+    egui::Button::new(RichText::new(text).color(Color32::WHITE).strong())
+        .fill(ACCENT)
+        .corner_radius(CornerRadius::same(8))
+}
+
+/// An iOS-style switch.
+fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let size = Vec2::new(40.0, 22.0);
+    let (rect, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    let t = ui.ctx().animate_bool_responsive(response.id, *on);
+    let off = if ui.visuals().dark_mode { Color32::from_gray(80) } else { Color32::from_gray(200) };
+    let track = lerp_color(off, ACCENT, t);
+    let radius = rect.height() / 2.0;
+    ui.painter().rect_filled(rect, radius, track);
+    let x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), t);
+    ui.painter().circle_filled(egui::pos2(x, rect.center().y), radius - 3.0, Color32::WHITE);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}
+
+/// A row of joined buttons, one selected.
+fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(T, &str)]) {
+    let visuals = ui.visuals().clone();
+    egui::Frame::new()
+        .fill(if visuals.dark_mode { Color32::from_gray(30) } else { Color32::from_gray(232) })
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::same(3))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            // Inside a right-aligned row egui lays out right to left; keep the reading order.
+            let rtl = ui.layout().prefer_right_to_left();
+            ui.horizontal(|ui| {
+                let mut ordered: Vec<_> = options.iter().collect();
+                if rtl {
+                    ordered.reverse();
+                }
+                for (option, label) in ordered {
+                    let selected = *value == *option;
+                    let text = if selected {
+                        RichText::new(*label).color(Color32::WHITE).strong()
+                    } else {
+                        RichText::new(*label)
+                    };
+                    let button = egui::Button::new(text)
+                        .fill(if selected { ACCENT } else { Color32::TRANSPARENT })
+                        .stroke(Stroke::NONE)
+                        .corner_radius(CornerRadius::same(6));
+                    if ui.add(button).clicked() {
+                        *value = *option;
+                    }
+                }
+            });
+        });
+}
+
+/// A shortcut drawn as keycaps ("Ctrl" "Shift" "S"); the whole thing is one button.
+fn keycaps(ui: &mut egui::Ui, shortcut: &str) -> egui::Response {
+    let visuals = ui.visuals().clone();
+    let inner = ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        // Inside a right-aligned row egui lays out right to left; keep the reading order.
+        let mut parts: Vec<&str> = Vec::new();
+        for (i, key) in shortcut.split('+').enumerate() {
+            if i > 0 {
+                parts.push("+");
+            }
+            parts.push(key);
+        }
+        if ui.layout().prefer_right_to_left() {
+            parts.reverse();
+        }
+        for key in parts {
+            if key == "+" {
+                ui.label(RichText::new("+").weak());
+                continue;
+            }
+            egui::Frame::new()
+                .fill(if visuals.dark_mode { Color32::from_gray(58) } else { Color32::WHITE })
+                .stroke(Stroke::new(
+                    1.0,
+                    if visuals.dark_mode { Color32::from_gray(80) } else { Color32::from_gray(200) },
+                ))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::symmetric(9, 4))
+                .show(ui, |ui| ui.label(RichText::new(key).monospace().strong()));
+        }
+    });
+    ui.interact(inner.response.rect, ui.scope_id().with(shortcut), egui::Sense::click())
+        .on_hover_text("Click to change")
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn open_folder(dir: &std::path::Path) {
@@ -478,15 +814,35 @@ fn open_folder(dir: &std::path::Path) {
     let _ = std::process::Command::new(program).arg(dir).spawn();
 }
 
+impl SettingsApp {
+    /// The whole window: sidebar on the left, the selected page in a scroll area on the right.
+    fn window(&mut self, ui: &mut egui::Ui) {
+        let sidebar_fill = if ui.visuals().dark_mode { Color32::from_gray(24) } else { Color32::from_gray(240) };
+        egui::Panel::left("nav")
+            .exact_size(SIDEBAR_WIDTH)
+            .resizable(false)
+            .frame(egui::Frame::new().fill(sidebar_fill).inner_margin(Margin::symmetric(10, 0)))
+            .show(ui, |ui| self.sidebar(ui));
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(ui.style()).inner_margin(Margin {
+                left: 26,
+                right: 26,
+                top: 14,
+                bottom: 0,
+            }))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.content(ui));
+            });
+    }
+}
+
 impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.check_raise(&ctx);
         self.ping();
         self.record_hotkey(&ctx);
-        egui::Frame::central_panel(ui.style()).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.body(ui));
-        });
+        self.window(ui);
         self.save_if_due();
         ctx.request_repaint_after(Duration::from_millis(if self.dirty_since.is_some() { 100 } else { 500 }));
     }
@@ -503,34 +859,162 @@ impl eframe::App for SettingsApp {
 mod tests {
     use super::*;
 
-    /// Lays the window out headlessly for both engines: no panics, and every section drawn.
+    /// Lays every page out headlessly: no panics, and each page's controls are drawn.
     #[test]
-    fn the_window_lays_out() {
+    fn every_page_lays_out() {
         let ctx = egui::Context::default();
+        apply_style(&ctx);
         let mut app = SettingsApp::new();
-        for engine in [Engine::Phonon, Engine::Kokoro] {
-            app.settings.engine = engine;
+        let expected: [(Page, &[&str]); 4] = [
+            (Page::Voice, &["Voice", "Speed", "Language", "Output device", "Model folder"]),
+            (Page::Modes, &["Speak mode", "Verbatim", "Explain", "Chat model", "Server address"]),
+            (Page::Shortcuts, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),
+            (Page::General, &["Start at login", "Stop sound", "Log file"]),
+        ];
+        for (page, wanted) in expected {
+            app.page = page;
             let mut texts = Vec::new();
-            // Grids size themselves on a first, invisible pass; the second frame is the real one.
-            let mut output = None;
+            // Panels and grids size themselves on a first pass; the second frame is the real one.
             for _ in 0..2 {
-                let mut frame = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| app.body(ui));
-                });
+                let mut frame = ctx.run_ui(egui::RawInput::default(), |ui| app.window(ui));
                 frame.textures_delta.clear();
-                output = Some(frame);
+                texts = frame
+                    .shapes
+                    .iter()
+                    .filter_map(|c| match &c.shape {
+                        egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                        _ => None,
+                    })
+                    .collect();
             }
-            let output = output.unwrap();
-            for clipped in &output.shapes {
-                if let egui::Shape::Text(t) = &clipped.shape {
-                    texts.push(t.galley.text().to_string());
-                }
-            }
-            for wanted in ["Speech", "Modes", "Shortcuts", "Behaviour", "Voice", "Speed"] {
-                assert!(texts.iter().any(|t| t == wanted), "{wanted} missing for {engine:?}: {texts:?}");
+            for w in wanted.iter().chain(&["Dynamite TTS", "Voice", "Modes", "Shortcuts", "General"]) {
+                assert!(texts.iter().any(|t| t == w), "{w} missing on {page:?}: {texts:?}");
             }
         }
-        // The test must not leave a pending save behind.
         app.dirty_since = None;
+    }
+
+    /// Renders every page, in light and dark mode, to target/settings-snapshots/*.png with a
+    /// small software rasterizer, so the layout can be looked at without a display or GPU.
+    /// Run with `cargo test render_settings_snapshots -- --ignored`.
+    #[test]
+    #[ignore]
+    fn render_settings_snapshots() {
+        let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/settings-snapshots");
+        std::fs::create_dir_all(&out).unwrap();
+        for (theme, preference) in [("dark", egui::ThemePreference::Dark), ("light", egui::ThemePreference::Light)] {
+            let ctx = egui::Context::default();
+            ctx.set_theme(preference);
+            apply_style(&ctx);
+            let mut app = SettingsApp::new();
+            let mut textures = std::collections::HashMap::new();
+            for page in Page::ALL {
+                app.page = page;
+                let size = Vec2::new(760.0, 560.0);
+                let input = || egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    ..Default::default()
+                };
+                let mut output = ctx.run_ui(input(), |ui| app.window(ui));
+                for _ in 0..3 {
+                    apply_textures(&mut textures, &mut output.textures_delta);
+                    output = ctx.run_ui(input(), |ui| app.window(ui));
+                }
+                apply_textures(&mut textures, &mut output.textures_delta);
+                let primitives = ctx.tessellate(output.shapes, 1.0);
+                let bg = if theme == "dark" { [27, 27, 27, 255] } else { [248, 248, 248, 255] };
+                let image = rasterize(&primitives, &textures, size.x as usize, size.y as usize, bg);
+                image.save(out.join(format!("{theme}-{}.png", page.title().to_lowercase()))).unwrap();
+            }
+            app.dirty_since = None;
+        }
+    }
+
+    type Textures = std::collections::HashMap<egui::TextureId, egui::ColorImage>;
+
+    fn apply_textures(textures: &mut Textures, delta: &mut egui::TexturesDelta) {
+        for (id, d) in delta.set.iter().flat_map(|(id, ds)| ds.iter().map(move |d| (id, d))) {
+            let egui::ImageData::Color(patch) = &d.image;
+            match d.pos {
+                None => {
+                    textures.insert(*id, egui::ColorImage::clone(patch));
+                }
+                Some([x0, y0]) => {
+                    let tex = textures.get_mut(id).expect("patch of a known texture");
+                    for y in 0..patch.size[1] {
+                        for x in 0..patch.size[0] {
+                            tex.pixels[(y0 + y) * tex.size[0] + x0 + x] = patch.pixels[y * patch.size[0] + x];
+                        }
+                    }
+                }
+            }
+        }
+        delta.clear();
+    }
+
+    /// Barycentric triangle fill with bilinear texture sampling and premultiplied-alpha blending.
+    fn rasterize(
+        prims: &[egui::ClippedPrimitive],
+        textures: &Textures,
+        w: usize,
+        h: usize,
+        bg: [u8; 4],
+    ) -> image::RgbaImage {
+        let mut px = vec![[bg[0] as f32, bg[1] as f32, bg[2] as f32, 255.0]; w * h];
+        let sample = |tex: &egui::ColorImage, u: f32, v: f32| -> [f32; 4] {
+            let (tw, th) = (tex.size[0], tex.size[1]);
+            let x = (u * tw as f32 - 0.5).clamp(0.0, tw as f32 - 1.0);
+            let y = (v * th as f32 - 0.5).clamp(0.0, th as f32 - 1.0);
+            let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+            let (x1, y1) = ((x0 + 1).min(tw - 1), (y0 + 1).min(th - 1));
+            let (fx, fy) = (x - x0 as f32, y - y0 as f32);
+            let get = |x: usize, y: usize| tex.pixels[y * tw + x].to_array().map(|c| c as f32);
+            let (a, b, c, d) = (get(x0, y0), get(x1, y0), get(x0, y1), get(x1, y1));
+            std::array::from_fn(|i| {
+                let top = a[i] + (b[i] - a[i]) * fx;
+                let bottom = c[i] + (d[i] - c[i]) * fx;
+                top + (bottom - top) * fy
+            })
+        };
+        for prim in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = &prim.primitive else { continue };
+            let Some(tex) = textures.get(&mesh.texture_id) else { continue };
+            let clip =
+                prim.clip_rect.intersect(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w as f32, h as f32)));
+            for tri in mesh.indices.as_chunks::<3>().0 {
+                let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| mesh.vertices[i as usize]);
+                let area = (b.pos.x - a.pos.x) * (c.pos.y - a.pos.y) - (b.pos.y - a.pos.y) * (c.pos.x - a.pos.x);
+                if area.abs() < 1e-6 {
+                    continue;
+                }
+                let min_x = a.pos.x.min(b.pos.x).min(c.pos.x).max(clip.min.x).floor() as i64;
+                let max_x = a.pos.x.max(b.pos.x).max(c.pos.x).min(clip.max.x).ceil() as i64;
+                let min_y = a.pos.y.min(b.pos.y).min(c.pos.y).max(clip.min.y).floor() as i64;
+                let max_y = a.pos.y.max(b.pos.y).max(c.pos.y).min(clip.max.y).ceil() as i64;
+                for y in min_y.max(0)..max_y.min(h as i64) {
+                    for x in min_x.max(0)..max_x.min(w as i64) {
+                        let (pxf, pyf) = (x as f32 + 0.5, y as f32 + 0.5);
+                        let w0 = ((b.pos.x - pxf) * (c.pos.y - pyf) - (b.pos.y - pyf) * (c.pos.x - pxf)) / area;
+                        let w1 = ((c.pos.x - pxf) * (a.pos.y - pyf) - (c.pos.y - pyf) * (a.pos.x - pxf)) / area;
+                        let w2 = 1.0 - w0 - w1;
+                        if w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4 {
+                            continue;
+                        }
+                        let lerp = |p: f32, q: f32, r: f32| p * w0 + q * w1 + r * w2;
+                        let t = sample(tex, lerp(a.uv.x, b.uv.x, c.uv.x), lerp(a.uv.y, b.uv.y, c.uv.y));
+                        let (ca, cb, cc) = (a.color.to_array(), b.color.to_array(), c.color.to_array());
+                        let src: [f32; 4] =
+                            std::array::from_fn(|i| lerp(ca[i] as f32, cb[i] as f32, cc[i] as f32) * t[i] / 255.0);
+                        let dst = &mut px[y as usize * w + x as usize];
+                        let inv = 1.0 - src[3] / 255.0;
+                        for i in 0..4 {
+                            dst[i] = src[i] + dst[i] * inv;
+                        }
+                    }
+                }
+            }
+        }
+        let raw: Vec<u8> = px.iter().flat_map(|p| p.map(|c| c.clamp(0.0, 255.0) as u8)).collect();
+        image::RgbaImage::from_raw(w as u32, h as u32, raw).unwrap()
     }
 }

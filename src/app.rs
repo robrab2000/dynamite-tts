@@ -274,10 +274,9 @@ impl App {
             "ping" => {
                 let open = self.settings_open();
                 return format!(
-                    "ok phase={} mode={} engine={:?} settings={}",
+                    "ok phase={} mode={} settings={}",
                     self.speech.phase().unwrap_or("Ready"),
                     self.settings.speak_mode.as_str(),
-                    self.settings.engine,
                     if open { "open" } else { "closed" }
                 );
             }

@@ -6,6 +6,6 @@ Exec=dynamite-tts
 Icon=dynamite-tts
 Terminal=false
 Categories=Utility;Accessibility;Audio;
-Keywords=speech;tts;read aloud;kokoro;lemonade;
+Keywords=speech;tts;read aloud;phonon;lemonade;
 StartupNotify=false
 X-GNOME-UsesNotifications=true

@@ -77,43 +77,12 @@ impl ExplainAudience {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum Engine {
-    /// Gradium's Phonon, in-process on the CPU. The default.
-    #[default]
-    Phonon,
-    /// Kokoro through Lemonade's `/audio/speech`; its backend and voice download on first use.
-    Kokoro,
-}
-
-impl Engine {
-    pub fn title(self) -> &'static str {
-        match self {
-            Engine::Phonon => "Phonon (in-process)",
-            Engine::Kokoro => "Kokoro (via Lemonade)",
-        }
-    }
-
-    fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "phonon" => Some(Self::Phonon),
-            // The C# app's in-process Kokoro ("DirectML") and HTTP engine ("LemonadeServer").
-            "kokoro" | "directml" | "lemonadeserver" => Some(Self::Kokoro),
-            _ => None,
-        }
-    }
-}
-
 pub const DEFAULT_BASE_URL: &str = "http://127.0.0.1:13305";
 pub const DEFAULT_CHAT_MODEL: &str = "Llama-3.2-1B-Instruct-GGUF";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Settings {
     pub base_url: String,
-    pub engine: Engine,
-    /// Kokoro voice.
-    pub voice: String,
     /// "default" = the checkpoint's own voice; otherwise a Phonon catalogue voice name.
     pub phonon_voice: String,
     /// Phonon's text normalization language (en, fr, de, es, pt or none).
@@ -139,8 +108,6 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             base_url: DEFAULT_BASE_URL.into(),
-            engine: Engine::Phonon,
-            voice: "af_heart".into(),
             phonon_voice: "default".into(),
             phonon_language: "en".into(),
             phonon_model_dir: String::new(),
@@ -229,12 +196,6 @@ impl Settings {
                 s.base_url = u.origin().ascii_serialization();
             }
         }
-        if let Some(e) = f.string(&["engine", "EngineMode"]).and_then(|v| Engine::parse(&v)) {
-            s.engine = e;
-        }
-        if let Some(v) = f.string(&["voice"]) {
-            s.voice = v;
-        }
         if let Some(v) = f.string(&["phonon_voice"]) {
             s.phonon_voice = v;
         }
@@ -301,10 +262,6 @@ impl Settings {
             "" => DEFAULT_BASE_URL.into(),
             u => u.into(),
         };
-        self.voice = match self.voice.trim() {
-            "" => "af_heart".into(),
-            v => v.into(),
-        };
         self.chat_model = match self.chat_model.trim() {
             "" => DEFAULT_CHAT_MODEL.into(),
             v => v.into(),
@@ -314,10 +271,6 @@ impl Settings {
         self.mode_hotkey =
             Hotkey::parse(&self.mode_hotkey).map_or_else(|| hotkey::DEFAULT_MODE.into(), |h| h.to_storage());
         self
-    }
-
-    pub fn uses_phonon(&self) -> bool {
-        self.engine == Engine::Phonon
     }
 
     pub fn speak_hotkey(&self) -> Hotkey {
@@ -369,32 +322,6 @@ impl Store {
     }
 }
 
-/// Kokoro voices offered in Settings: (id, label).
-pub const KOKORO_VOICES: &[(&str, &str)] = &[
-    ("af_heart", "af_heart · US female, warm"),
-    ("af_sky", "af_sky · US female, clear"),
-    ("af_bella", "af_bella · US female, expressive"),
-    ("af_sarah", "af_sarah · US female, smooth"),
-    ("af_nicole", "af_nicole · US female, crisp"),
-    ("af_aoede", "af_aoede · US female, melodic"),
-    ("af_kore", "af_kore · US female, gentle"),
-    ("am_adam", "am_adam · US male, narrative"),
-    ("am_michael", "am_michael · US male, professional"),
-    ("am_echo", "am_echo · US male, balanced"),
-    ("am_eric", "am_eric · US male, clear"),
-    ("am_fenrir", "am_fenrir · US male, deep"),
-    ("am_liam", "am_liam · US male, friendly"),
-    ("am_puck", "am_puck · US male, casual"),
-    ("bf_emma", "bf_emma · UK female"),
-    ("bf_isabella", "bf_isabella · UK female, soft"),
-    ("bf_alice", "bf_alice · UK female, articulate"),
-    ("bf_lily", "bf_lily · UK female, bright"),
-    ("bm_george", "bm_george · UK male"),
-    ("bm_fable", "bm_fable · UK male, authoritative"),
-    ("bm_lewis", "bm_lewis · UK male, formal"),
-    ("bm_daniel", "bm_daniel · UK male, conversational"),
-];
-
 pub const PHONON_LANGUAGES: &[(&str, &str)] = &[
     ("en", "English"),
     ("fr", "French (needs a Phonon 40M model)"),
@@ -434,7 +361,6 @@ mod tests {
     fn bad_values_fall_back_to_defaults() {
         let s = Settings::from_json(&json!({"speak_mode": "shout", "engine": 3, "speed": "fast"}));
         assert_eq!(s.speak_mode, SpeakMode::Verbatim);
-        assert_eq!(s.engine, Engine::Phonon);
         assert_eq!(s.speed, 1.0);
     }
 
@@ -445,8 +371,6 @@ mod tests {
             "speak_mode": "summary", "speak_hotkey": "<Control><Alt>r", "mode_hotkey": "<Control><Shift>m",
             "show_status_notifications": false, "explain_audience": "general"
         }));
-        assert_eq!(s.engine, Engine::Kokoro);
-        assert_eq!(s.voice, "bm_george");
         assert_eq!(s.speak_mode, SpeakMode::Summary);
         assert_eq!(s.speak_hotkey, "Ctrl+Alt+R");
         assert!(!s.show_status);
@@ -466,7 +390,6 @@ mod tests {
             "AudioDeviceId": "{0.0.0.00000000}.{e5582329-e8ab-424a-961e-152ddf011e76}"
         }));
         assert_eq!(s.base_url, "http://localhost:13305");
-        assert_eq!(s.voice, "af_sky");
         assert_eq!(s.speed, 1.25);
         assert_eq!(s.speak_hotkey, "Ctrl+Alt+5");
         assert_eq!(s.mode_hotkey, "Ctrl+Shift+M");
@@ -474,7 +397,6 @@ mod tests {
         assert_eq!(s.chat_model, "Qwen2.5-0.5B-Instruct");
         assert!(s.launch_at_login);
         assert!(!s.show_status);
-        assert_eq!(s.engine, Engine::Kokoro);
         assert_eq!(s.phonon_voice, "Easton");
         assert_eq!(s.audio_device, "", "an endpoint id is not a device name");
         assert_eq!(s.explain_sentence_count, 8);

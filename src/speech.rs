@@ -1,5 +1,5 @@
 //! The speech pipeline: cleanup, optional Summary / Explain through Lemonade's chat model, then
-//! Phonon (in-process) or Kokoro (Lemonade) streamed into the player.
+//! Phonon (in-process) streamed into the player.
 //!
 //! Public methods run on the UI thread. Each request runs on a worker thread and reports back
 //! through [`Event`]s tagged with its generation; a newer request or a stop bumps the
@@ -31,7 +31,6 @@ pub struct Speech {
     player: Arc<Player>,
     engine: Arc<phonon::Engine>,
     client: Arc<lemonade::Client>,
-    kokoro_installed: Arc<AtomicBool>,
     received_audio: Arc<AtomicBool>,
     emit: Emit,
 }
@@ -44,7 +43,6 @@ impl Speech {
             player: Arc::new(Player::new()),
             engine: Arc::new(phonon::Engine::default()),
             client: Arc::new(lemonade::Client::new()),
-            kokoro_installed: Arc::new(AtomicBool::new(false)),
             received_audio: Arc::new(AtomicBool::new(false)),
             emit,
         }
@@ -91,13 +89,7 @@ impl Speech {
         }
         self.stop(false, settings);
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        log!(
-            "speak chars={} mode={} engine={:?} voice={}",
-            clean.chars().count(),
-            mode.as_str(),
-            settings.engine,
-            if settings.uses_phonon() { &settings.phonon_voice } else { &settings.voice }
-        );
+        log!("speak chars={} mode={} voice={}", clean.chars().count(), mode.as_str(), settings.phonon_voice);
         // Busy before the worker starts, so a second shortcut stops this request rather than
         // racing a phase that has not been reported yet.
         self.phase = Some("Starting…".into());
@@ -107,7 +99,6 @@ impl Speech {
             player: self.player.clone(),
             engine: self.engine.clone(),
             client: self.client.clone(),
-            kokoro_installed: self.kokoro_installed.clone(),
             received_audio: self.received_audio.clone(),
             emit: self.emit.clone(),
             settings: settings.clone(),
@@ -149,7 +140,6 @@ struct Worker {
     player: Arc<Player>,
     engine: Arc<phonon::Engine>,
     client: Arc<lemonade::Client>,
-    kokoro_installed: Arc<AtomicBool>,
     received_audio: Arc<AtomicBool>,
     emit: Emit,
     settings: Settings,
@@ -171,7 +161,7 @@ impl Worker {
         let base = s.base_url.as_str();
         let cancelled = || !self.alive();
         let chat = matches!(mode, SpeakMode::Summary | SpeakMode::Explain);
-        if chat || !s.uses_phonon() {
+        if chat {
             if !self.client.is_healthy(base) {
                 self.phase("Starting Lemonade…");
             }
@@ -224,7 +214,7 @@ impl Worker {
         }
 
         let chunks = text::chunks(&spoken);
-        if s.uses_phonon() { self.speak_phonon(&chunks) } else { self.speak_kokoro(&chunks) }
+        self.speak_phonon(&chunks)
     }
 
     fn chat_error(&self, e: lemonade::LemonadeError, mode: SpeakMode) -> String {
@@ -322,46 +312,5 @@ impl Worker {
             )
             .map_err(|e| e.0)?;
         self.finish(session, pushed, "Phonon")
-    }
-
-    fn speak_kokoro(&self, chunks: &[String]) -> Result<(), String> {
-        let s = &self.settings;
-        let base = s.base_url.as_str();
-        // Kokoro's backend and voice (about 340 MB) arrive the first time it is used.
-        if !self.kokoro_installed.load(Ordering::SeqCst) {
-            self.phase("Installing Kokoro…");
-            self.client.install_backend(base, "kokoro", lemonade::KOKORO_BACKEND).map_err(|e| e.0)?;
-            self.kokoro_installed.store(true, Ordering::SeqCst);
-        }
-        if !self.alive() {
-            return Ok(());
-        }
-        self.phase("Synthesizing…");
-        self.client
-            .ensure_model(base, lemonade::KOKORO_MODEL, &|| self.phase("Downloading Kokoro (once)…"))
-            .map_err(|e| e.0)?;
-        if !self.alive() {
-            return Ok(());
-        }
-        self.phase("Synthesizing…");
-        let session = self.begin_playback()?;
-        let mut pushed = 0usize;
-        for chunk in chunks {
-            if !self.alive() {
-                return Ok(());
-            }
-            let mut stopped = false;
-            self.client
-                .speak(base, chunk, &s.voice, s.speed, &mut |pcm| {
-                    let ok = self.feed(session, pcm, &mut pushed);
-                    stopped |= !ok;
-                    ok
-                })
-                .map_err(|e| e.0)?;
-            if stopped {
-                return Ok(());
-            }
-        }
-        self.finish(session, pushed, "Lemonade")
     }
 }

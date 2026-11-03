@@ -104,7 +104,7 @@ fi
 
 if [[ "${LEMONADE}" == "1" ]]; then
   echo
-  echo "== Lemonade (Kokoro, Summary and Explain) =="
+  echo "== Lemonade (Summary and Explain) =="
   "${HERE}/install-lemonade.sh"
   LEMONADE_DIR="${DATA}/lemonade"
   if ! curl -sf --max-time 2 "http://127.0.0.1:13305/api/v1/health" >/dev/null; then

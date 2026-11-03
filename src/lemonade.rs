@@ -1,7 +1,6 @@
-//! Client for a local Lemonade server: health, starting `lemond`, backend install, model
-//! load/pull, chat completions, and Kokoro speech streamed as 16-bit PCM.
+//! Client for a local Lemonade server: health, starting `lemond`, model load/pull, and chat
+//! completions for Summary and Explain.
 
-use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -11,12 +10,8 @@ use serde_json::{Value, json};
 
 use crate::log;
 
-pub const KOKORO_MODEL: &str = "kokoro-v1";
 /// Model ids containing these are not chat models.
 const NON_CHAT_MARKERS: &[&str] = &["kokoro", "tts", "whisper", "speech", "audio", "moss", "stt", "asr", "embed"];
-
-/// Lemonade's Kokoro backend for this platform.
-pub const KOKORO_BACKEND: &str = if cfg!(target_os = "macos") { "metal" } else { "cpu" };
 
 #[derive(Debug)]
 pub struct LemonadeError(pub String);
@@ -213,20 +208,6 @@ impl Client {
         err(format!("Lemonade did not start on {host}:{port}. See {}.", log_path.display()))
     }
 
-    /// Installs a backend (e.g. kokoro:cpu); returns at once when it is already installed.
-    pub fn install_backend(&self, base: &str, recipe: &str, backend: &str) -> Result<()> {
-        let (status, body) = self.post(
-            &format!("{base}/api/v1/install"),
-            &json!({"recipe": recipe, "backend": backend}),
-            Duration::from_secs(1800),
-        )?;
-        if (200..300).contains(&status) {
-            Ok(())
-        } else {
-            err(format!("Could not install {recipe}:{backend}. {}", shorten(&body)))
-        }
-    }
-
     /// Loads `model`, downloading it first when Lemonade does not have it.
     pub fn ensure_model(&self, base: &str, model: &str, on_download: &dyn Fn()) -> Result<()> {
         let load =
@@ -289,67 +270,6 @@ impl Client {
             return err(shorten(&body));
         }
         parse_chat(&body)
-    }
-
-    /// Streams Kokoro speech, handing each block of samples (as f32) to `sink`. `sink` returns
-    /// false to stop.
-    pub fn speak(
-        &self,
-        base: &str,
-        text: &str,
-        voice: &str,
-        speed: f64,
-        sink: &mut dyn FnMut(&[f32]) -> bool,
-    ) -> Result<()> {
-        let payload = json!({
-            "model": KOKORO_MODEL, "input": text, "voice": voice, "speed": speed,
-            "stream_format": "audio", "response_format": "pcm",
-        });
-        let response = self
-            .agent
-            .post(&format!("{base}/api/v1/audio/speech"))
-            .config()
-            .timeout_global(Some(Duration::from_secs(600)))
-            .build()
-            .header("Content-Type", "application/json")
-            .send(payload.to_string())
-            .map_err(|e| LemonadeError(format!("Could not reach Lemonade: {e}")))?;
-        let status = response.status().as_u16();
-        let mut reader = response.into_body().into_reader();
-        if !(200..300).contains(&status) {
-            let mut body = String::new();
-            let _ = reader.read_to_string(&mut body);
-            return err(format!("Speech request failed ({status}). {}", shorten(&body)));
-        }
-        let mut buf = vec![0u8; 8192];
-        let mut leftover: Option<u8> = None;
-        let mut samples = Vec::with_capacity(4096);
-        loop {
-            let n = reader.read(&mut buf).map_err(|e| LemonadeError(format!("Speech stream failed: {e}")))?;
-            if n == 0 {
-                return Ok(());
-            }
-            samples.clear();
-            let mut bytes = buf[..n].iter().copied();
-            if let Some(lo) = leftover.take() {
-                if let Some(hi) = bytes.next() {
-                    samples.push(i16::from_le_bytes([lo, hi]) as f32 / 32768.0);
-                }
-            }
-            loop {
-                match (bytes.next(), bytes.next()) {
-                    (Some(lo), Some(hi)) => samples.push(i16::from_le_bytes([lo, hi]) as f32 / 32768.0),
-                    (Some(lo), None) => {
-                        leftover = Some(lo);
-                        break;
-                    }
-                    _ => break,
-                }
-            }
-            if !samples.is_empty() && !sink(&samples) {
-                return Ok(());
-            }
-        }
     }
 }
 

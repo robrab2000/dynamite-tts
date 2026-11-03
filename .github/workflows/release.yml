@@ -106,7 +106,7 @@ jobs:
           ## Notes
           - Builds are unsigned; SmartScreen and Gatekeeper may warn.
           - x86-64 builds need an AVX2 (x86-64-v3) CPU.
-          - The Phonon model is bundled, so Verbatim speech works offline. Kokoro, Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai)."
+          - The Phonon model is bundled, so Verbatim speech works offline. Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai)."
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" artifacts/* --clobber
           else
