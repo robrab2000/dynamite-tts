@@ -2,4 +2,4 @@
 
 APP_ID = "com.robrab2000.dynamitetts"
 APP_NAME = "Dynamite TTS"
-VERSION = "0.1.4"
+VERSION = "0.1.6"

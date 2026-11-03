@@ -28,7 +28,7 @@ jobs:
           mkdir -p artifacts
           tar -czf "artifacts/DynamiteTts-linux-v${tag}.tar.gz" \
             --exclude='__pycache__' \
-            linux/dynamite-tts linux/dynamite-tts.desktop linux/install.sh linux/install-lemonade.sh \
+            linux/dynamite-tts linux/dynamite-tts.desktop linux/install.sh linux/install-lemonade.sh linux/install-phonon.sh \
             linux/uninstall.sh linux/dynamite_tts linux/icons LICENSE README.md
 
       - name: Upload Linux tarball
