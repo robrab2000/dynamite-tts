@@ -258,6 +258,10 @@ impl Settings {
             v => v.into(),
         };
         self.phonon_model_dir = self.phonon_model_dir.trim().into();
+        self.audio_device = self.audio_device.trim().into();
+        if is_endpoint_id(&self.audio_device) {
+            self.audio_device.clear();
+        }
         self.base_url = match self.base_url.trim().trim_end_matches('/') {
             "" => DEFAULT_BASE_URL.into(),
             u => u.into(),
@@ -280,6 +284,12 @@ impl Settings {
     pub fn mode_hotkey(&self) -> Hotkey {
         Hotkey::parse(&self.mode_hotkey).expect("normalized")
     }
+}
+
+/// A Windows audio endpoint id (`{0.0.0.00000000}.{guid}`), as the C# app saved. Never a device
+/// name, so it falls back to the default output.
+fn is_endpoint_id(device: &str) -> bool {
+    device.starts_with("{0.") && device.contains("}.{")
 }
 
 /// Reads and writes one settings file.
@@ -399,6 +409,10 @@ mod tests {
         assert!(!s.show_status);
         assert_eq!(s.phonon_voice, "Easton");
         assert_eq!(s.audio_device, "", "an endpoint id is not a device name");
+        let stored =
+            Settings::from_json(&json!({"audio_device": "{0.0.0.00000000}.{e5582329-e8ab-424a-961e-152ddf011e76}"}));
+        assert_eq!(stored.audio_device, "", "an endpoint id already saved under the new key is dropped too");
+        assert_eq!(Settings::from_json(&json!({"audio_device": " Speakers "})).audio_device, "Speakers");
         assert_eq!(s.explain_sentence_count, 8);
     }
 

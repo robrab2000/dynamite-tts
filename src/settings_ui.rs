@@ -446,10 +446,14 @@ impl SettingsApp {
                     if ui.small_button("Refresh").on_hover_text("Refresh the device list").clicked() {
                         self.devices = audio::output_devices();
                     }
-                    let label = if self.settings.audio_device.is_empty() {
+                    let device = &self.settings.audio_device;
+                    let label = if device.is_empty() {
                         "System default".to_string()
+                    } else if self.devices.iter().any(|d| d == device) {
+                        device.clone()
                     } else {
-                        self.settings.audio_device.clone()
+                        // Unplugged, or saved on another machine: speech uses the default for now.
+                        format!("System default ({device} not found)")
                     };
                     egui::ComboBox::from_id_salt("device").width(CONTROL_WIDTH - 40.0).selected_text(label).show_ui(
                         ui,
