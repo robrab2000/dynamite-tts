@@ -828,8 +828,8 @@ mod tests {
         }
     }
 
-    /// Writes every style and state to target/status-snapshots/*.png, on light and dark
-    /// backgrounds, with the system font. Run with `cargo test status_snapshots -- --ignored`.
+    /// Writes every style and state to target/status-snapshots/*.png on transparency, with the
+    /// system font. Run with `cargo test status_snapshots -- --ignored`.
     #[test]
     #[ignore]
     fn status_snapshots() {
@@ -845,21 +845,17 @@ mod tests {
                 let l = Look { style, kind, text: text.into(), detail: detail.map(str::to_string) };
                 let size = render::size(&l, font.as_ref(), 2.0);
                 let px = render::draw(&l, font.as_ref(), 2.0, size, 0.8, 0.18);
-                let mut img = image::RgbaImage::new(size.0 + 40, size.1 + 40);
-                for p in img.pixels_mut() {
-                    *p = image::Rgba([0x6b, 0x6a, 0x2a, 255]);
-                }
+                // Transparent around the pill, as the window is clipped to a capsule.
+                let mut img = image::RgbaImage::new(size.0, size.1);
                 for (i, [r, g, b]) in px.into_iter().enumerate() {
                     let (x, y) = (i as u32 % size.0, i as u32 / size.0);
-                    // The window is clipped to a capsule; show that here.
                     let (cx, cy, hw, hh) = (size.0 as f32 / 2.0, size.1 as f32 / 2.0, size.0 as f32, size.1 as f32);
                     let r_ = hh / 2.0;
                     let qx = (x as f32 + 0.5 - cx).abs() - (hw / 2.0 - r_);
                     let qy = (y as f32 + 0.5 - cy).abs() - (hh / 2.0 - r_);
                     let d = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r_;
-                    if d <= 0.0 {
-                        img.put_pixel(x + 20, y + 20, image::Rgba([r, g, b, 255]));
-                    }
+                    let alpha = (0.5 - d).clamp(0.0, 1.0);
+                    img.put_pixel(x, y, image::Rgba([r, g, b, (alpha * 255.0).round() as u8]));
                 }
                 let name = format!("{}-{:?}.png", style.title().to_lowercase(), kind).to_lowercase();
                 img.save(out.join(name)).unwrap();

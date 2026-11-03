@@ -30,9 +30,9 @@ Summary and Explain use a small chat model running locally in [Lemonade Server](
 - **Private by design.** Text is never sent anywhere, and the log records timings only, never what was read.
 
 <p align="center">
-  <img src="docs/images/status-minimal-speaking.png" alt="Minimal status pill" height="58">
-  <img src="docs/images/status-standard-speaking.png" alt="Standard status pill" height="70">
-  <img src="docs/images/status-detailed-working.png" alt="Detailed status pill while summarizing" height="86">
+  <img src="docs/images/status-minimal-speaking.png" alt="Minimal status pill" height="32">
+  <img src="docs/images/status-standard-speaking.png" alt="Standard status pill" height="52">
+  <img src="docs/images/status-detailed-working.png" alt="Detailed status pill while summarizing" height="72">
 </p>
 
 ## Install
