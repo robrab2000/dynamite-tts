@@ -13,6 +13,7 @@ A rewrite: one Rust app for Windows, macOS and Linux, replacing the separate C#,
 - **A new logo and icons.** The tray icon is grey when ready, orange while thinking and blue while speaking, with the fuse lit only while it's busy.
 - **A redesigned Settings window** with Voice, Modes, Shortcuts and General pages, a folder picker for the Phonon model, and changes saved as you make them.
 - **The same features everywhere.** Shortcuts you can rebind, start at login, the stop sound and the command line now work alike on all three systems.
+- **A macOS installer.** The zip now has **Install Dynamite TTS.command**: double-click it to copy the app to ~/Applications, install Lemonade and its chat model if you want them, and open the app.
 
 ### Changed
 
@@ -25,5 +26,5 @@ A rewrite: one Rust app for Windows, macOS and Linux, replacing the separate C#,
 
 - Windows: run the new installer over the old one. It keeps the install folder, Start menu entry, login item and settings.
 - Linux: run the new `install.sh`; your settings carry over and the GNOME shortcuts are updated to the new app.
-- macOS: replace the app. Settings start fresh.
+- macOS: run **Install Dynamite TTS.command** from the new zip (it replaces the app in ~/Applications; delete an old copy in /Applications). Settings start fresh.
 - x86-64 builds need a CPU with AVX2 (about 2013 or newer).

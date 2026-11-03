@@ -2,7 +2,8 @@
 # Build DynamiteTTS.app (Apple Silicon) from the Rust crate, bundle the Phonon model, and sign it.
 #
 #   packaging/macos/package-app.sh            -> target/macos/DynamiteTTS.app
-#   packaging/macos/package-app.sh --zip      -> also target/macos/DynamiteTTS-macos-arm64-vX.Y.Z.zip
+#   packaging/macos/package-app.sh --zip      -> also target/macos/DynamiteTTS-macos-arm64-vX.Y.Z.zip,
+#                                                the app with "Install Dynamite TTS.command" and its scripts
 #
 # CODESIGN_IDENTITY picks the signing identity (default: the first "Apple Development" one, else
 # ad hoc). DYNAMITE_BUNDLE_PHONON_MODEL=0 leaves the model out; the app then downloads it once.
@@ -54,8 +55,15 @@ codesign --verify --verbose=2 "${APP}"
 echo "Built ${APP} (signed with ${IDENTITY})"
 
 if [[ "${1:-}" == "--zip" ]]; then
-  ZIP="${OUT}/DynamiteTTS-macos-arm64-v${VERSION}.zip"
-  rm -f "${ZIP}"
-  ditto -c -k --keepParent "${APP}" "${ZIP}"
+  NAME="DynamiteTTS-macos-arm64-v${VERSION}"
+  STAGE="${OUT}/${NAME}"
+  ZIP="${OUT}/${NAME}.zip"
+  rm -rf "${STAGE}" "${ZIP}"
+  mkdir -p "${STAGE}"
+  ditto "${APP}" "${STAGE}/DynamiteTTS.app"
+  cp "${ROOT}/packaging/macos/"{"Install Dynamite TTS.command",install.sh,install-lemonade.sh} "${STAGE}/"
+  chmod +x "${STAGE}/Install Dynamite TTS.command" "${STAGE}/"*.sh
+  cp "${ROOT}/LICENSE" "${STAGE}/"
+  ditto -c -k --norsrc --keepParent "${STAGE}" "${ZIP}"
   echo "Wrote ${ZIP}"
 fi

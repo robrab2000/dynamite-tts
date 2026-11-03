@@ -1,9 +1,10 @@
 #!/bin/bash
 # Install Dynamite TTS on an Apple Silicon Mac from a release zip or a local build.
+# "Install Dynamite TTS.command" is the double-clickable front for this script.
 #
-#   packaging/macos/install.sh [DynamiteTTS.app]    copy the app to ~/Applications, install
-#                                                   Lemonade with its chat model, and open it
-#   packaging/macos/install.sh --no-lemonade ...    skip Lemonade (Verbatim mode needs none)
+#   ./install.sh [DynamiteTTS.app]    copy the app to ~/Applications, install Lemonade with its
+#                                     chat model, and open it
+#   ./install.sh --no-lemonade ...    skip Lemonade (Verbatim mode needs none)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -12,7 +13,7 @@ SOURCE=""
 for arg in "$@"; do
   case "$arg" in
     --no-lemonade) LEMONADE=0 ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
     *) SOURCE="$arg" ;;
   esac
 done
