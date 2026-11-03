@@ -400,7 +400,7 @@ mod pill {
                 let (mpos, msize) = (monitor.position(), monitor.size());
                 // A little below the menu bar (and the notch) on macOS; just under the top edge on Windows.
                 #[cfg(target_os = "macos")]
-                let top = (macos::menu_bar_height().unwrap_or(37.0) + 6.0) * monitor.scale_factor();
+                let top = (macos::menu_bar_height().unwrap_or(37.0) + 3.0) * monitor.scale_factor();
                 #[cfg(windows)]
                 let top = 16.0 * monitor.scale_factor();
                 let x = mpos.x + (msize.width as i32 - size.0 as i32) / 2;
