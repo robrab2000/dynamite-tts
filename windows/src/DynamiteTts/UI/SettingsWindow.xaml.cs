@@ -328,7 +328,6 @@ public partial class SettingsWindow : Window
         _suppressUiEvents = true;
         try
         {
-            VoiceComboBox.Text = string.Empty;
             PopulateVoices();
             RefreshAudioDevices();
             RefreshDirectMlDevices();
@@ -371,53 +370,140 @@ public partial class SettingsWindow : Window
         Close();
     }
 
-    private void PopulateVoices()
+    private void PopulateVoices(string? preferredVoice = null)
     {
-        var engine = SelectedEngineTag;
-        var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
-        var engineChanged = !string.Equals(_voicesEngine, engine, StringComparison.OrdinalIgnoreCase);
-        _voicesEngine = engine;
+        // Rebuilding the list raises selection changes. Those are not the user picking a voice,
+        // and handling them mid-rebuild re-enters layout while the engine combo is still changing.
+        var outerSuppress = _suppressUiEvents;
+        _suppressUiEvents = true;
+        try
+        {
+            var engine = SelectedEngineTag;
+            var isPhonon = string.Equals(engine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
+            var engineChanged = !string.Equals(_voicesEngine, engine, StringComparison.OrdinalIgnoreCase);
+            _voicesEngine = engine;
 
-        var currentVoice = engineChanged ? string.Empty : VoiceComboBox.Text;
-        if (string.IsNullOrEmpty(currentVoice))
-        {
-            currentVoice = isPhonon ? _settingsStore.Current.PhononVoice : _settingsStore.Current.Voice;
-        }
+            var currentVoice = preferredVoice;
+            if (string.IsNullOrEmpty(currentVoice) && !engineChanged)
+                currentVoice = ReadSelectedVoiceId();
+            if (string.IsNullOrEmpty(currentVoice))
+                currentVoice = isPhonon ? _settingsStore.Current.PhononVoice : _settingsStore.Current.Voice;
 
-        VoiceComboBox.Items.Clear();
-        if (isPhonon)
-        {
-            var language = SelectedPhononLanguage;
-            foreach (var voice in PhononVoice.ForLanguage(language))
-                VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice.DisplayName, Tag = voice.Name });
-            foreach (var voice in PhononVoice.Catalog.Where(v => !v.IsDefault && !string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase)))
-                VoiceComboBox.Items.Add(new ComboBoxItem { Content = voice.DisplayName, Tag = voice.Name });
-        }
-        else
-        {
-            foreach (var preset in VoicePreset.Presets)
+            VoiceComboBox.Items.Clear();
+            if (isPhonon)
             {
-                VoiceComboBox.Items.Add(new ComboBoxItem
-                {
-                    Content = preset.DisplayName,
-                    Tag = preset.Id
-                });
+                var language = SelectedPhononLanguage;
+                foreach (var voice in PhononVoice.ForLanguage(language))
+                    AddVoiceChoice(voice.DisplayName, voice.Name);
+                foreach (var voice in PhononVoice.Catalog.Where(v => !v.IsDefault && !string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase)))
+                    AddVoiceChoice(voice.DisplayName, voice.Name);
             }
+            else
+            {
+                foreach (var preset in VoicePreset.Presets)
+                    AddVoiceChoice(preset.DisplayName, preset.Id);
+            }
+
+            SelectListedVoice(currentVoice, isPhonon);
+        }
+        finally
+        {
+            _suppressUiEvents = outerSuppress;
         }
 
-        var matchingItem = VoiceComboBox.Items
+        if (!outerSuppress)
+            ApplyLiveVoice();
+    }
+
+    private void AddVoiceChoice(string displayName, string id)
+    {
+        var item = new ComboBoxItem { Content = displayName, Tag = id };
+        // Prefix search uses this text, so typing "Eas" jumps to Easton instead of editing the field.
+        TextSearch.SetText(item, displayName);
+        VoiceComboBox.Items.Add(item);
+    }
+
+    /// <summary>Voice id of the selected row. The combo is not editable, so typed text is never a voice.</summary>
+    private string ReadSelectedVoiceId() =>
+        (VoiceComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString()?.Trim() ?? string.Empty;
+
+    private void SelectListedVoice(string? voiceId, bool isPhonon)
+    {
+        var match = FindVoiceItem(voiceId);
+        if (match == null)
+        {
+            match = isPhonon
+                ? FindVoiceItem(PhononVoice.DefaultId)
+                : FindVoiceItem("coral") ?? FindVoiceItem("af_heart");
+        }
+
+        if (match == null && VoiceComboBox.Items.Count > 0)
+            match = VoiceComboBox.Items[0] as ComboBoxItem;
+
+        VoiceComboBox.SelectedItem = match;
+    }
+
+    private ComboBoxItem? FindVoiceItem(string? voiceId)
+    {
+        if (string.IsNullOrWhiteSpace(voiceId)) return null;
+        return VoiceComboBox.Items
             .OfType<ComboBoxItem>()
-            .FirstOrDefault(i => string.Equals(i.Tag?.ToString(), currentVoice, StringComparison.OrdinalIgnoreCase)
-                              || string.Equals(i.Content?.ToString(), currentVoice, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(i => string.Equals(i.Tag?.ToString(), voiceId, StringComparison.OrdinalIgnoreCase)
+                              || string.Equals(i.Content?.ToString(), voiceId, StringComparison.OrdinalIgnoreCase));
+    }
 
-        if (matchingItem != null)
+    private static string ReadSelectedOption(ComboBox box) =>
+        (box.SelectedItem as string)?.Trim() ?? string.Empty;
+
+    /// <summary>
+    /// Selects a model id in a closed list. Inserts a saved id that the server did not return so it
+    /// stays selectable, and never leaves the field as free text.
+    /// </summary>
+    private static void SelectStringOption(ComboBox box, string? value, bool addIfMissing)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            VoiceComboBox.SelectedItem = matchingItem;
+            box.SelectedItem = null;
+            return;
         }
-        else
+
+        var match = box.Items.OfType<string>().FirstOrDefault(item =>
+            string.Equals(item, value, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
         {
-            VoiceComboBox.Text = currentVoice;
+            box.SelectedItem = match;
+            return;
         }
+
+        if (addIfMissing)
+        {
+            box.Items.Add(value);
+            box.SelectedItem = value;
+            return;
+        }
+
+        box.SelectedItem = null;
+    }
+
+    private static void ReplaceStringOptions(
+        ComboBox box,
+        IEnumerable<string> options,
+        string? selected,
+        bool addSelectedIfMissing,
+        bool selectFirstIfNone)
+    {
+        box.Items.Clear();
+        foreach (var option in options)
+        {
+            if (string.IsNullOrWhiteSpace(option)) continue;
+            if (box.Items.OfType<string>().Any(existing => string.Equals(existing, option, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            box.Items.Add(option);
+        }
+
+        SelectStringOption(box, selected, addSelectedIfMissing);
+        if (selectFirstIfNone && box.SelectedItem == null && box.Items.Count > 0)
+            box.SelectedIndex = 0;
     }
 
     private void RefreshDirectMlDevices()
@@ -496,17 +582,10 @@ public partial class SettingsWindow : Window
             }
         }
         PhononModelDirTextBox.Text = settings.PhononModelDir;
-        PopulateVoices();
+        PopulateVoices(settings.IsPhononEngine ? settings.PhononVoice : settings.Voice);
 
         EndpointTextBox.Text = settings.SpeechEndpoint;
-        ModelComboBox.Text = settings.Model;
-        ModelComboBox.SelectedItem = settings.Model;
-
-        var engineVoice = settings.IsPhononEngine ? settings.PhononVoice : settings.Voice;
-        var voiceItem = VoiceComboBox.Items.OfType<ComboBoxItem>()
-            .FirstOrDefault(i => string.Equals(i.Tag?.ToString(), engineVoice, StringComparison.OrdinalIgnoreCase));
-        if (voiceItem != null) VoiceComboBox.SelectedItem = voiceItem;
-        else VoiceComboBox.Text = engineVoice;
+        SelectStringOption(ModelComboBox, settings.Model, addIfMissing: !string.IsNullOrWhiteSpace(settings.Model));
 
         SpeedSlider.Value = settings.Speed;
         SpeedValueTextBlock.Text = $"{settings.Speed:F2}x";
@@ -514,7 +593,9 @@ public partial class SettingsWindow : Window
         ModeToggleHotkeyCaptureControl.Hotkey = settings.ModeToggleHotkey;
         SelectSpeakMode(settings.SpeakMode);
         ChatEndpointTextBox.Text = settings.ChatEndpoint;
-        ChatModelComboBox.Text = settings.ChatModel;
+        var keepChatModel = !string.IsNullOrWhiteSpace(settings.ChatModel)
+            && !LemonadeChatClient.IsLikelyTtsModel(settings.ChatModel);
+        SelectStringOption(ChatModelComboBox, settings.ChatModel, addIfMissing: keepChatModel);
         SelectExplainAudience(settings.ExplainAudience);
         ExplainSentenceCountSlider.Value = AppSettings.ClampExplainSentenceCount(settings.ExplainSentenceCount);
         ExplainSentenceCountValueTextBlock.Text = ((int)ExplainSentenceCountSlider.Value).ToString();
@@ -625,14 +706,14 @@ public partial class SettingsWindow : Window
         if (string.IsNullOrWhiteSpace(endpoint))
             endpoint = _settingsStore.Current.SpeechEndpoint;
 
-        var model = ModelComboBox.Text.Trim();
+        var model = ReadSelectedOption(ModelComboBox);
         if (string.IsNullOrWhiteSpace(model))
             model = _settingsStore.Current.Model;
 
         var selectedEngine = (EngineComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? AppSettings.DefaultEngineMode;
         var isPhonon = string.Equals(selectedEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
 
-        var uiVoice = SelectedVoiceId();
+        var uiVoice = ReadSelectedVoiceId();
         var voice = isPhonon ? _settingsStore.Current.Voice : uiVoice;
         var phononVoice = isPhonon ? uiVoice : _settingsStore.Current.PhononVoice;
         if (string.IsNullOrWhiteSpace(voice))
@@ -664,7 +745,7 @@ public partial class SettingsWindow : Window
             ChatEndpoint = string.IsNullOrWhiteSpace(ChatEndpointTextBox.Text)
                 ? _settingsStore.Current.ChatEndpoint
                 : ChatEndpointTextBox.Text.Trim(),
-            ChatModel = ChatModelComboBox.Text.Trim(),
+            ChatModel = ReadSelectedOption(ChatModelComboBox),
             ExplainSentenceCount = AppSettings.ClampExplainSentenceCount((int)Math.Round(ExplainSentenceCountSlider.Value)),
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
@@ -691,30 +772,32 @@ public partial class SettingsWindow : Window
             var endpoint = EndpointTextBox.Text.Trim();
             var models = await _ttsClient.GetModelsAsync(endpoint);
 
-            var currentText = ModelComboBox.Text;
-            if (string.IsNullOrEmpty(currentText))
+            var current = ReadSelectedOption(ModelComboBox);
+            if (string.IsNullOrWhiteSpace(current))
+                current = _settingsStore.Current.Model;
+
+            var ttsModels = models
+                .Where(model => LemonadeChatClient.IsLikelyTtsModel(model))
+                .Select(model => model.Id)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .ToList();
+            if (ttsModels.Count == 0)
             {
-                currentText = _settingsStore.Current.Model;
+                ttsModels.Add("kokoro-v1");
+                ttsModels.Add("OpenMOSS-TTS");
             }
 
-            ModelComboBox.Items.Clear();
-
-            if (models.Count > 0)
-            {
-                foreach (var model in models)
-                {
-                    ModelComboBox.Items.Add(model.Id);
-                }
-            }
-            else
-            {
-                ModelComboBox.Items.Add("kokoro-v1");
-                ModelComboBox.Items.Add("OpenMOSS-TTS");
-            }
-
-            var chosenModel = !string.IsNullOrEmpty(currentText) ? currentText : "kokoro-v1";
-            ModelComboBox.Text = chosenModel;
-            ModelComboBox.SelectedItem = chosenModel;
+            // A model the server listed as a chat LLM is not a speech model, so don't keep it selected.
+            var listedAsChat = !string.IsNullOrWhiteSpace(current) && models.Any(model =>
+                string.Equals(model.Id, current, StringComparison.OrdinalIgnoreCase) &&
+                !LemonadeChatClient.IsLikelyTtsModel(model));
+            var keepSaved = !string.IsNullOrWhiteSpace(current) && !listedAsChat;
+            ReplaceStringOptions(
+                ModelComboBox,
+                ttsModels,
+                keepSaved ? current : null,
+                addSelectedIfMissing: keepSaved,
+                selectFirstIfNone: true);
         }
         finally
         {
@@ -894,17 +977,8 @@ public partial class SettingsWindow : Window
         ApplyLiveVoice();
     }
 
-    private void OnVoiceLostFocus(object sender, RoutedEventArgs e)
-    {
-        ApplyLiveVoice();
-    }
-
-    /// <summary>The voice id chosen in the combo, or the typed text when it is not a preset.</summary>
-    private string SelectedVoiceId()
-    {
-        var selectedVoiceItem = VoiceComboBox.SelectedItem as ComboBoxItem;
-        return selectedVoiceItem?.Tag?.ToString() ?? VoiceComboBox.Text.Trim();
-    }
+    /// <summary>The voice id of the selected row. Typed text is not a voice.</summary>
+    private string SelectedVoiceId() => ReadSelectedVoiceId();
 
     /// <summary>Speech uses this voice immediately. It is dropped again if the settings are discarded.</summary>
     private void ApplyLiveVoice()
@@ -1034,14 +1108,14 @@ public partial class SettingsWindow : Window
             return false;
         }
 
-        var model = ModelComboBox.Text.Trim();
+        var model = ReadSelectedOption(ModelComboBox);
         if (string.IsNullOrWhiteSpace(model))
         {
             model = "kokoro-v1";
         }
 
         var isPhonon = string.Equals(selectedEngine, AppSettings.EnginePhonon, StringComparison.OrdinalIgnoreCase);
-        var uiVoice = SelectedVoiceId();
+        var uiVoice = ReadSelectedVoiceId();
         var voice = isPhonon ? _settingsStore.Current.Voice : uiVoice;
         var phononVoice = isPhonon ? uiVoice : _settingsStore.Current.PhononVoice;
         if (string.IsNullOrWhiteSpace(voice))
@@ -1098,7 +1172,7 @@ public partial class SettingsWindow : Window
             ModeToggleHotkey = modeToggleHotkey,
             SpeakMode = GetSelectedSpeakMode(),
             ChatEndpoint = chatEndpoint,
-            ChatModel = ChatModelComboBox.Text.Trim(),
+            ChatModel = ReadSelectedOption(ChatModelComboBox),
             ExplainSentenceCount = AppSettings.ClampExplainSentenceCount((int)Math.Round(ExplainSentenceCountSlider.Value)),
             ExplainAudience = GetSelectedExplainAudience(),
             AudioDeviceId = audioDeviceId,
@@ -1153,8 +1227,13 @@ public partial class SettingsWindow : Window
         }
 
         e.Cancel = true;
-        if (_leaveInProgress)
+        // A modal prompt blocks shutdown, and there is nothing to ask when the window isn't on screen.
+        if (_leaveInProgress || Dispatcher.HasShutdownStarted || !IsVisible)
+        {
+            _orchestrator.VoiceOverride = null;
+            Hide();
             return;
+        }
 
         // Let this close attempt finish canceling before the dialog opens.
         _leaveInProgress = true;
@@ -1246,9 +1325,9 @@ public partial class SettingsWindow : Window
                 Dispatcher.BeginInvoke(() => StatusTextBlock.Text = msg);
             });
 
-            var preferred = ChatModelComboBox.Text.Trim();
+            var preferred = ReadSelectedOption(ChatModelComboBox);
             var modelId = await _dependencyService.EnsureChatModelAsync(endpoint, preferred, progress);
-            ChatModelComboBox.Text = modelId;
+            SelectStringOption(ChatModelComboBox, modelId, addIfMissing: true);
             await RefreshChatModelsAsync();
             StatusTextBlock.Text = $"Chat model ready: {modelId}";
             _notificationService.ShowInfo("Chat model", $"Lemonade chat model '{modelId}' is ready.");
@@ -1273,35 +1352,32 @@ public partial class SettingsWindow : Window
                 : ChatEndpointTextBox.Text.Trim();
 
             var models = await _chatClient.GetModelsAsync(endpoint);
-            var currentText = ChatModelComboBox.Text;
-            if (string.IsNullOrEmpty(currentText))
-                currentText = _settingsStore.Current.ChatModel;
+            var current = ReadSelectedOption(ChatModelComboBox);
+            if (string.IsNullOrWhiteSpace(current))
+                current = _settingsStore.Current.ChatModel;
 
-            ChatModelComboBox.Items.Clear();
-            foreach (var model in models.Where(m => !LemonadeChatClient.IsLikelyTtsModel(m.Id)))
-            {
-                ChatModelComboBox.Items.Add(model.Id);
-            }
+            var chatModels = models
+                .Where(model => !LemonadeChatClient.IsLikelyTtsModel(model))
+                .Select(model => model.Id)
+                .Where(id => !string.IsNullOrWhiteSpace(id));
 
-            foreach (var model in models.Where(m => LemonadeChatClient.IsLikelyTtsModel(m.Id)))
+            string? selected = null;
+            var addSelected = false;
+            if (!string.IsNullOrWhiteSpace(current) && !LemonadeChatClient.IsLikelyTtsModel(current))
             {
-                ChatModelComboBox.Items.Add(model.Id);
-            }
-
-            if (!string.IsNullOrWhiteSpace(currentText))
-            {
-                ChatModelComboBox.Text = currentText;
+                selected = current;
+                addSelected = true;
             }
             else
             {
-                var picked = LemonadeChatClient.PickChatModel(models, preferred: null);
-                if (!string.IsNullOrEmpty(picked))
-                    ChatModelComboBox.Text = picked;
+                selected = LemonadeChatClient.PickChatModel(models, preferred: null);
             }
+
+            ReplaceStringOptions(ChatModelComboBox, chatModels, selected, addSelected, selectFirstIfNone: true);
         }
         catch
         {
-            // Non-fatal; leave the current text
+            // Non-fatal; leave the current selection
         }
     }
 }
