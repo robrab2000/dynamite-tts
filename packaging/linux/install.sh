@@ -43,7 +43,13 @@ if [[ "$(uname -m)" == "x86_64" ]] && ! grep -qw avx2 /proc/cpuinfo 2>/dev/null;
 fi
 
 echo "== System packages =="
-RUNTIME=(libgtk-3-0 libayatana-appindicator3-1 libasound2 wl-clipboard xclip curl)
+# Ubuntu 24.04 renamed libasound2 to libasound2t64 and left libasound2 as a virtual package with
+# two providers, which apt refuses to pick between. Use whichever name is a real package here.
+ALSA=libasound2
+if command -v apt-cache >/dev/null && [[ -n "$(apt-cache show libasound2t64 2>/dev/null)" ]]; then
+  ALSA=libasound2t64
+fi
+RUNTIME=(libgtk-3-0 libayatana-appindicator3-1 "${ALSA}" wl-clipboard xclip curl)
 BUILD=(build-essential pkg-config libgtk-3-dev libasound2-dev)
 PACKAGES=("${RUNTIME[@]}")
 [[ -z "${PREBUILT}" ]] && PACKAGES+=("${BUILD[@]}")
