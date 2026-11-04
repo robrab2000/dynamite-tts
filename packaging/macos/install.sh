@@ -43,7 +43,7 @@ echo "Installed ${DEST}"
 
 if [[ "${LEMONADE}" == "1" ]]; then
   echo
-  echo "== Lemonade (Summary and Explain) =="
+  echo "== Lemonade (Summary, Explain and ELI5) =="
   "${HERE}/install-lemonade.sh"
   LEMOND="${HOME}/Library/Application Support/DynamiteTTS/lemonade/lemond"
   CLI="${HOME}/Library/Application Support/DynamiteTTS/lemonade/lemonade"
@@ -64,4 +64,4 @@ echo
 echo "== Launch =="
 open "${DEST}"
 echo "Dynamite TTS is in the menu bar. Allow it under System Settings → Privacy & Security → Accessibility"
-echo "when asked, then highlight text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain."
+echo "when asked, then highlight text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."

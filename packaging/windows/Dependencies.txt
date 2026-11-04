@@ -6,9 +6,9 @@ INCLUDED (always)
   downloadable voices (Verbatim mode works offline after install)
 
 OPTIONAL (next page — you can opt out)
-• Lemonade Server (AMD) — needed only for Summary and Explain modes. Installed via winget if
-  you leave the option checked. The small default chat model is downloaded later, the first
-  time you use one of those modes (not during this Setup).
+• Lemonade Server (AMD) — needed only for Summary, Explain and ELI5 modes. Installed via
+  winget if you leave the option checked. The small default chat model is downloaded later,
+  the first time you use one of those modes (not during this Setup).
 
 Upgrading from 0.1.x
 • The Kokoro engine (and its 325 MB model and CUDA support) is gone; Phonon is the only voice

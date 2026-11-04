@@ -111,7 +111,7 @@ fi
 
 if [[ "${LEMONADE}" == "1" ]]; then
   echo
-  echo "== Lemonade (Summary and Explain) =="
+  echo "== Lemonade (Summary, Explain and ELI5) =="
   "${HERE}/install-lemonade.sh"
   LEMONADE_DIR="${DATA}/lemonade"
   if ! curl -sf --max-time 2 "http://127.0.0.1:13305/api/v1/health" >/dev/null; then
@@ -139,7 +139,7 @@ else
   echo "Dynamite TTS did not answer; start it from the app grid or run: dynamite-tts"
 fi
 echo
-echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain."
+echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."
 echo "On GNOME the shortcuts were added under Settings > Keyboard > Custom Shortcuts."
 echo "On other desktops bind these two commands yourself:"
 echo "  ${BIN}/dynamite-tts speak"

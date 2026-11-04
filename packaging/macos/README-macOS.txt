@@ -23,7 +23,7 @@ INSTALL
 3. The installer asks whether to install Lemonade:
 
    - Y installs Lemonade Server and a small chat model (about 1 GB).
-     Summary and Explain modes need it.
+     Summary, Explain and ELI5 modes need it.
    - n skips it. Verbatim reading works without it.
 
 4. Dynamite TTS opens in the menu bar. When macOS asks, allow it under
@@ -49,7 +49,7 @@ USE IT
 
 - Highlight text in any app and press Control-Shift-S to hear it.
 - Press Control-Shift-S again to stop, or click the status pill.
-- Control-Shift-M switches between Verbatim, Summary and Explain.
+- Control-Shift-M switches between Verbatim, Summary, Explain and ELI5.
 - Settings are in the menu bar icon's menu.
 
 

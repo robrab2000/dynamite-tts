@@ -3,7 +3,7 @@
 #   bash Install-Dynamite-TTS.command
 # Terminal shows each step and stays open until you press Return. It uses the DynamiteTTS.app
 # next to it, or downloads this version's zip from GitHub; copies the app to ~/Applications;
-# optionally installs Lemonade with its chat model for Summary and Explain; and opens the app.
+# optionally installs Lemonade with its chat model for Summary, Explain and ELI5; and opens the app.
 #
 # Downloads are quarantined, so the first double-click may be refused: choose Open Anyway under
 # System Settings → Privacy & Security, or run it from Terminal with bash.
@@ -64,7 +64,7 @@ else
 fi
 
 args=()
-echo "Summary and Explain need Lemonade Server and a small chat model (about 1 GB, downloaded now)."
+echo "Summary, Explain and ELI5 need Lemonade Server and a small chat model (about 1 GB, downloaded now)."
 echo "Verbatim reading works without it."
 read -r -p "Install Lemonade? [Y/n] " answer || answer=""
 case "${answer}" in

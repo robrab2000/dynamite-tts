@@ -110,7 +110,7 @@ jobs:
             - \`DynamiteTTS-macos-arm64-${tag}.zip\` has the app itself with the same installer, for installing offline.
           - **Linux (Ubuntu 22.04+):** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
 
-          Builds are not code-signed yet, so SmartScreen and Gatekeeper may ask you to confirm the first launch. x86-64 builds need an AVX2 CPU. The Phonon English model is bundled, so Verbatim speech works offline; Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai). See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for details.
+          Builds are not code-signed yet, so SmartScreen and Gatekeeper may ask you to confirm the first launch. x86-64 builds need an AVX2 CPU. The Phonon English model is bundled, so Verbatim speech works offline; Summary, Explain and ELI5 need a local [Lemonade Server](https://lemonade-server.ai). See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for details.
           NOTES
           sed -i 's/^          //' notes.md
           cat notes.md
