@@ -4,7 +4,8 @@
 #   packaging/macos/package-app.sh            -> target/macos/DynamiteTTS.app
 #   packaging/macos/package-app.sh --zip      -> also target/macos/DynamiteTTS-macos-arm64-vX.Y.Z.zip
 #                                                (the app with the installer and its scripts) and the
-#                                                standalone target/macos/Install-Dynamite-TTS-vX.Y.Z.command.zip
+#                                                target/macos/Install-Dynamite-TTS-macOS-vX.Y.Z.zip (the
+#                                                installer on its own with a README)
 #
 # CODESIGN_IDENTITY picks the signing identity (default: the first "Apple Development" one, else
 # ad hoc). DYNAMITE_BUNDLE_PHONON_MODEL=0 leaves the model out; the app then downloads it once.
@@ -64,15 +65,17 @@ if [[ "${1:-}" == "--zip" ]]; then
   ditto "${APP}" "${STAGE}/DynamiteTTS.app"
   cp "${ROOT}/packaging/macos/"{install.sh,install-lemonade.sh} "${ROOT}/LICENSE" "${STAGE}/"
   sed "s/__VERSION__/${VERSION}/" "${ROOT}/packaging/macos/Install-Dynamite-TTS.command" > "${STAGE}/Install-Dynamite-TTS.command"
+  sed "s/__VERSION__/${VERSION}/g" "${ROOT}/packaging/macos/README-macOS.txt" > "${STAGE}/README.txt"
   chmod +x "${STAGE}/Install-Dynamite-TTS.command" "${STAGE}/"*.sh
   ditto -c -k --norsrc --keepParent "${STAGE}" "${ZIP}"
   echo "Wrote ${ZIP}"
-  # The same installer on its own: it downloads the zip above from the GitHub release. It is
-  # zipped because a bare download loses its execute bit; Archive Utility puts it back.
-  INSTALLER="${OUT}/Install-Dynamite-TTS-v${VERSION}.command"
-  cp "${STAGE}/Install-Dynamite-TTS.command" "${INSTALLER}"
-  rm -f "${INSTALLER}.zip"
-  (cd "${OUT}" && ditto -c -k --norsrc "Install-Dynamite-TTS-v${VERSION}.command" "${INSTALLER}.zip")
-  rm -f "${INSTALLER}"
-  echo "Wrote ${INSTALLER}.zip"
+  # The installer on its own, with a README: it downloads the zip above from the GitHub release.
+  # It is zipped because a bare download loses its execute bit; Archive Utility puts it back.
+  KIT="Install-Dynamite-TTS-macOS-v${VERSION}"
+  rm -rf "${OUT:?}/${KIT}" "${OUT}/${KIT}.zip"
+  mkdir -p "${OUT}/${KIT}"
+  cp "${STAGE}/Install-Dynamite-TTS.command" "${OUT}/${KIT}/"
+  sed "s/__VERSION__/${VERSION}/g" "${ROOT}/packaging/macos/README-macOS.txt" > "${OUT}/${KIT}/README.txt"
+  ditto -c -k --norsrc --keepParent "${OUT}/${KIT}" "${OUT}/${KIT}.zip"
+  echo "Wrote ${OUT}/${KIT}.zip"
 fi

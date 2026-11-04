@@ -43,15 +43,13 @@ It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator 
 
 ### macOS 14+ on Apple Silicon
 
-1. Download **`Install-Dynamite-TTS-v….command.zip`**. Safari unzips it for you; otherwise double-click the zip. Then double-click **`Install-Dynamite-TTS-v….command`**. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return.
-2. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or run it from Terminal instead (this also works if the file has lost its execute permission):
-   ```bash
-   bash ~/Downloads/Install-Dynamite-TTS-v*.command
-   ```
-3. Answer **Y** to install Lemonade Server and its chat model if you want Summary and Explain, or **n** for Verbatim only.
-4. When the app opens, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
+1. Download **`Install-Dynamite-TTS-macOS-v….zip`** and open it. Safari unzips it for you.
+2. Double-click **Install-Dynamite-TTS.command** in the folder. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return. The **README.txt** next to it has these steps too.
+3. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or open Terminal, type `bash ` with a space, drag the installer into the window, and press Return.
+4. Answer **Y** to install Lemonade Server and its chat model if you want Summary and Explain, or **n** for Verbatim only.
+5. When the app opens, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
 
-The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer next to it, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open** (or **Open Anyway** as above), and run `install-lemonade.sh` for Summary and Explain.
+The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer and README, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open**, and run `install-lemonade.sh` for Summary and Explain.
 
 ### Linux (Ubuntu 22.04+ and similar; GNOME on Wayland or X11)
 
@@ -161,7 +159,7 @@ Release packages:
 
 ```bash
 ./packaging/windows/build.ps1           # target/windows: zip, plus the installer if Inno Setup 6 is installed
-./packaging/macos/package-app.sh --zip  # target/macos: DynamiteTTS.app, its zip, and the .command installer
+./packaging/macos/package-app.sh --zip  # target/macos: DynamiteTTS.app, its zip, and the installer zip
 ./packaging/linux/package.sh            # target/linux: the tarball
 ```
 
