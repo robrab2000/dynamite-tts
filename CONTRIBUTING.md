@@ -13,13 +13,13 @@ Open an [issue](https://github.com/robrab2000/dynamite-tts/issues) with:
 
 ## Getting set up
 
-You need [Rust](https://rustup.rs) 1.89 or newer (stable). Then:
+You need [Rust](https://rustup.rs) 1.89 or newer (stable) and [CMake](https://cmake.org), which builds llama.cpp for the built-in chat model. Then:
 
 | System | Also needed |
 |---|---|
-| Windows | The MSVC build tools (Visual Studio Build Tools, "Desktop development with C++"). [Inno Setup 6](https://jrsoftware.org/isinfo.php) only if you build the installer. |
-| macOS | Xcode or the Command Line Tools. Apple Silicon only. |
-| Linux | `pkg-config libgtk-3-dev libasound2-dev` (Ubuntu names). AppIndicator, wl-clipboard and xclip are runtime dependencies only. |
+| Windows | The MSVC build tools (Visual Studio Build Tools, "Desktop development with C++", which include CMake) and LLVM for bindgen (`winget install LLVM.LLVM`). [Inno Setup 6](https://jrsoftware.org/isinfo.php) only if you build the installer. |
+| macOS | Xcode or the Command Line Tools, and CMake (`brew install cmake`). Apple Silicon only. |
+| Linux | `pkg-config libgtk-3-dev libasound2-dev cmake libclang-dev` (Ubuntu names). AppIndicator, wl-clipboard and xclip are runtime dependencies only. |
 
 ```bash
 git clone https://github.com/robrab2000/dynamite-tts
@@ -27,7 +27,7 @@ cd dynamite-tts
 cargo run --release          # debug builds work, but Phonon is much slower in them
 ```
 
-The first time it speaks, the app downloads the Phonon model (65 MB) into your data folder. To start fresh, quit the app and delete the settings file and data folder listed in the README.
+The first time it speaks, the app downloads the Phonon model (65 MB) into your data folder; the first Summary or Explain downloads the chat model (1.1 GB). The first build also compiles llama.cpp, which takes a few minutes; `cargo build --no-default-features` skips it when you're not working on Summary or Explain. To start fresh, quit the app and delete the settings file and data folder listed in the README.
 
 ## Before you open a pull request
 
@@ -64,12 +64,13 @@ The README's "Source layout" section maps the files. A few ideas run through all
 - **One process for the tray, another for Settings.** The tray app (`app.rs`) owns the shortcuts, the speech pipeline and the status pill. Settings (`settings_ui.rs`) runs as `dynamite-tts --settings-window`, saves `settings.json` as you change things and tells the app to `reload` over the control socket (`control.rs`). New settings go in `settings.rs`, with defaults, normalization and loading, and a test.
 - **Speech never blocks the UI thread.** Each request runs on a worker thread and reports back with events tagged by a generation number (`speech.rs`). A newer request or a stop makes older work stop and its late events harmless.
 - **Phonon runs in-process** through the `ptts` crate (`phonon.rs`). Its model and voices download from pinned Hugging Face revisions, and the model files are checked against SHA-256 hashes. Keep it that way if you change versions: update the revision, sizes and hashes together, in `phonon.rs` and in the packaging scripts that bundle the model.
+- **The chat model runs in-process** through `llama-cpp-2` (`llm.rs`), downloaded the same way (`download.rs`) and listed in `llm::CHAT_MODELS` with its revision, size, hash and attention-cache size. The memory figure Settings shows comes from those; `cargo test --release real_chat -- --ignored --nocapture` runs each downloaded model and prints its timings and memory, so re-check the estimate when you add or change a model.
 - **The audio callback must stay cheap.** `audio.rs` plays from a queue in the device callback, which also runs the EQ (`eq.rs`). Don't allocate, lock for long, or do I/O there.
 
 ## Rules that matter
 
 - **Never log or store what was read.** No highlighted text, summaries or explanations in the log, settings or anywhere on disk. Log lengths and timings instead.
-- **Nothing leaves the machine** except the pinned model and voice downloads and requests to the user's own Lemonade server. No telemetry.
+- **Nothing leaves the machine** except the pinned model and voice downloads and requests to the user's own Lemonade server, if they choose it. No telemetry.
 - **Don't take focus.** The status pill and anything else shown while speaking must never activate a window, or it would steal the user's selection.
 - **Old settings must keep loading.** `Settings::from_json` is lenient on purpose: unknown keys are ignored, bad values fall back to defaults. When you rename or remove a setting, keep reading the old name, and add a test.
 

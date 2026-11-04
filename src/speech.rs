@@ -1,5 +1,5 @@
-//! The speech pipeline: cleanup, optional Summary / Explain through Lemonade's chat model, then
-//! Phonon (in-process) streamed into the player.
+//! The speech pipeline: cleanup, optional Summary / Explain through the built-in chat model
+//! (llama.cpp in-process) or Lemonade's, then Phonon (in-process) streamed into the player.
 //!
 //! Public methods run on the UI thread. Each request runs on a worker thread and reports back
 //! through [`Event`]s tagged with its generation; a newer request or a stop bumps the
@@ -7,11 +7,11 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::audio::{Player, Session};
-use crate::settings::{Settings, SpeakMode};
-use crate::{lemonade, log, phonon, text};
+use crate::settings::{ChatBackend, Settings, SpeakMode};
+use crate::{lemonade, llm, log, phonon, text};
 
 /// Synthesis runs this far ahead of playback at most, so a stop never strands minutes of audio.
 const MAX_QUEUED_SECONDS: f64 = 8.0;
@@ -31,6 +31,7 @@ pub struct Speech {
     player: Arc<Player>,
     engine: Arc<phonon::Engine>,
     client: Arc<lemonade::Client>,
+    llm: Arc<llm::Engine>,
     received_audio: Arc<AtomicBool>,
     emit: Emit,
 }
@@ -43,8 +44,22 @@ impl Speech {
             player: Arc::new(Player::new()),
             engine: Arc::new(phonon::Engine::default()),
             client: Arc::new(lemonade::Client::new()),
+            llm: Arc::new(llm::Engine::default()),
             received_audio: Arc::new(AtomicBool::new(false)),
             emit,
+        }
+    }
+
+    /// Frees the built-in chat model after a while unused. Returns when to call again.
+    pub fn maintain(&self) -> Option<Instant> {
+        self.llm.unload_if_idle(llm::IDLE_UNLOAD)
+    }
+
+    /// Starts llama.cpp in the background when Summary or Explain may be used soon, so the first
+    /// request doesn't wait for its GPU set-up (a few seconds on a Mac, once per run).
+    pub fn prepare_chat(&self, settings: &Settings) {
+        if settings.chat_backend == ChatBackend::Local && settings.speak_mode != SpeakMode::Verbatim {
+            let _ = std::thread::Builder::new().name("llm-warm-up".into()).spawn(llm::warm_up);
         }
     }
 
@@ -109,6 +124,7 @@ impl Speech {
             player: self.player.clone(),
             engine: self.engine.clone(),
             client: self.client.clone(),
+            llm: self.llm.clone(),
             received_audio: self.received_audio.clone(),
             emit: self.emit.clone(),
             settings: settings.clone(),
@@ -151,6 +167,7 @@ struct Worker {
     player: Arc<Player>,
     engine: Arc<phonon::Engine>,
     client: Arc<lemonade::Client>,
+    llm: Arc<llm::Engine>,
     received_audio: Arc<AtomicBool>,
     emit: Emit,
     settings: Settings,
@@ -172,49 +189,22 @@ impl Worker {
     }
 
     fn run(&self, text: &str, context: Option<String>, mode: SpeakMode) -> Result<(), String> {
-        let s = &self.settings;
-        let base = s.base_url.as_str();
         let cancelled = || !self.alive();
-        let chat = matches!(mode, SpeakMode::Summary | SpeakMode::Explain);
-        if chat {
-            if !self.client.is_healthy(base) {
-                self.phase("Starting Lemonade…");
-            }
-            self.client.ensure_server(base, &cancelled).map_err(|e| self.chat_error(e, mode))?;
-            if cancelled() {
-                return Ok(());
-            }
-        }
-
         let mut spoken = text.to_string();
-        if chat {
+        if mode != SpeakMode::Verbatim {
             let explain = mode == SpeakMode::Explain;
-            self.phase(if explain { "Explaining…" } else { "Summarizing…" });
-            let model = self.client.pick_chat_model(base, &s.chat_model);
-            self.client
-                .ensure_model(base, &model, &|| self.phase("Downloading the chat model (once)…"))
-                .map_err(|e| self.chat_error(e, mode))?;
+            let started = Instant::now();
+            let reply = match self.settings.chat_backend {
+                ChatBackend::Local => self.local_reply(text, context.as_deref(), mode),
+                ChatBackend::Lemonade => self.lemonade_reply(text, context.as_deref(), mode),
+            }?;
             if cancelled() {
                 return Ok(());
             }
-            self.phase(if explain { "Explaining…" } else { "Summarizing…" });
-            let started = std::time::Instant::now();
-            let reply = if explain {
-                let n = s.explain_sentence_count;
-                self.client.chat(
-                    base,
-                    &model,
-                    &text::explain_prompt(s.explain_audience, n),
-                    &text::explain_user_message(text, context.as_deref()),
-                    Some(text::explain_max_tokens(n)),
-                )
-            } else {
-                self.client.chat(base, &model, text::SUMMARY_PROMPT, text, None)
-            }
-            .map_err(|e| self.chat_error(e, mode))?;
             log!(
-                "{}: {} chars -> {} chars in {} ms",
+                "{} ({}): {} chars -> {} chars in {} ms",
                 mode.as_str(),
+                self.settings.chat_backend.title(),
                 text.chars().count(),
                 reply.chars().count(),
                 started.elapsed().as_millis()
@@ -232,12 +222,89 @@ impl Worker {
         self.speak_phonon(&chunks)
     }
 
-    fn chat_error(&self, e: lemonade::LemonadeError, mode: SpeakMode) -> String {
-        let explain = mode == SpeakMode::Explain;
-        if matches!(mode, SpeakMode::Verbatim) {
-            return e.0;
+    /// The system prompt, user message and reply limit for a Summary or Explain request.
+    fn prompts(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> (String, String, Option<u32>) {
+        let s = &self.settings;
+        if mode == SpeakMode::Explain {
+            let n = s.explain_sentence_count;
+            (
+                text::explain_prompt(s.explain_audience, n),
+                text::explain_user_message(text, context),
+                Some(text::explain_max_tokens(n)),
+            )
+        } else {
+            (text::SUMMARY_PROMPT.to_string(), text.to_string(), None)
         }
-        format!("{}: {}", lemonade::failure_title(&e.0, explain), e.0)
+    }
+
+    fn working_phase(mode: SpeakMode) -> &'static str {
+        if mode == SpeakMode::Explain { "Explaining…" } else { "Summarizing…" }
+    }
+
+    fn local_reply(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> Result<String, String> {
+        let cancelled = || !self.alive();
+        let (system, user, max_tokens) = self.prompts(text, context, mode);
+        let model = llm::find_model(&self.settings.local_model);
+        let mut last_percent = None;
+        if !self.llm.is_loaded() && llm::is_downloaded(model) {
+            self.phase("Loading the chat model…");
+        }
+        let reply = self.llm.chat(
+            model.id,
+            &system,
+            &user,
+            max_tokens.unwrap_or(text::SUMMARY_MAX_TOKENS),
+            &cancelled,
+            &mut |p| match p {
+                llm::Progress::Downloading(f) => {
+                    self.download_phase("Downloading the chat model", f, &mut last_percent);
+                }
+                llm::Progress::Loading => self.phase("Loading the chat model…"),
+                llm::Progress::Writing => self.phase(Self::working_phase(mode)),
+            },
+        );
+        reply.map_err(|e| self.chat_error(e.0, mode))
+    }
+
+    fn lemonade_reply(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> Result<String, String> {
+        let base = self.settings.base_url.as_str();
+        let cancelled = || !self.alive();
+        if !self.client.is_healthy(base) {
+            self.phase("Starting Lemonade…");
+        }
+        self.client.ensure_server(base, &cancelled).map_err(|e| self.chat_error(e.0, mode))?;
+        if cancelled() {
+            return Ok(String::new());
+        }
+        self.phase(Self::working_phase(mode));
+        let model = self.client.pick_chat_model(base, &self.settings.chat_model);
+        self.client
+            .ensure_model(base, &model, &|| self.phase("Downloading the chat model (once)…"))
+            .map_err(|e| self.chat_error(e.0, mode))?;
+        if cancelled() {
+            return Ok(String::new());
+        }
+        self.phase(Self::working_phase(mode));
+        let (system, user, max_tokens) = self.prompts(text, context, mode);
+        self.client.chat(base, &model, &system, &user, max_tokens).map_err(|e| self.chat_error(e.0, mode))
+    }
+
+    fn chat_error(&self, message: String, mode: SpeakMode) -> String {
+        let explain = mode == SpeakMode::Explain;
+        let title = match self.settings.chat_backend {
+            ChatBackend::Local => llm::failure_title(&message, explain),
+            ChatBackend::Lemonade => lemonade::failure_title(&message, explain),
+        };
+        format!("{title}: {message}")
+    }
+
+    /// Reports a download in tens of percent: each phase change is logged and redrawn.
+    fn download_phase(&self, what: &str, fraction: f64, last_percent: &mut Option<u32>) {
+        let percent = (fraction.clamp(0.0, 1.0) * 10.0).floor() as u32 * 10;
+        if *last_percent != Some(percent) {
+            *last_percent = Some(percent);
+            self.phase(&format!("{what} ({percent}%)…"));
+        }
     }
 
     /// Opens a player session and a thread that reports "Speaking" and the end of playback.
@@ -313,14 +380,7 @@ impl Worker {
                 &s.phonon_language,
                 &cancelled,
                 &mut |p| match p {
-                    phonon::Progress::Downloading(f) => {
-                        // Tens of percent: each phase change is logged and redrawn.
-                        let percent = (f * 10.0).floor() as u32 * 10;
-                        if last_percent != Some(percent) {
-                            last_percent = Some(percent);
-                            self.phase(&format!("Downloading Phonon ({percent}%)…"));
-                        }
-                    }
+                    phonon::Progress::Downloading(f) => self.download_phase("Downloading Phonon", f, &mut last_percent),
                     phonon::Progress::Loading => self.phase("Loading Phonon…"),
                 },
                 &mut |pcm| self.feed(session, pcm, &mut pushed),

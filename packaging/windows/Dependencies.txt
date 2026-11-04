@@ -4,11 +4,13 @@ INCLUDED (always)
 • Dynamite TTS tray app (one self-contained executable)
 • Phonon speech engine + the Phonon 31M English model (Gradium, Apache 2.0), with ~100
   downloadable voices (Verbatim mode works offline after install)
+• A built-in chat model for Summary and Explain (Qwen3 by Alibaba Cloud, Apache 2.0, run with
+  llama.cpp). It downloads the first time you use one of those modes (1.1 GB, or 400 MB for
+  the smaller model), not during this Setup.
 
-OPTIONAL (next page — you can opt out)
-• Lemonade Server (AMD) — needed only for Summary and Explain modes. Installed via winget if
-  you leave the option checked. The small default chat model is downloaded later, the first
-  time you use one of those modes (not during this Setup).
+OPTIONAL (next page — off unless you tick it)
+• Lemonade Server (AMD) — an alternative chat backend, mainly for AMD Ryzen AI NPUs. Installed
+  via winget if you tick the option; choose it afterwards in Settings → Modes.
 
 Upgrading from 0.1.x
 • The Kokoro engine (and its 325 MB model and CUDA support) is gone; Phonon is the only voice
@@ -17,7 +19,7 @@ Upgrading from 0.1.x
 Hardware notes
 • Dynamite TTS needs an x86-64-v3 processor (AVX2; Intel Haswell / AMD Excavator, 2013-2015 or
   newer). Phonon runs on the CPU: first audio in well under 0.1 s, about 10x realtime.
-• Summary / Explain need Lemonade + enough RAM for a small local LLM. AMD NPU/GPU is optional
-  and only makes chat faster — it is not required for the default tiny model.
+• Summary / Explain need enough free memory for the chat model: up to about 1.7 GB for the
+  default, 1.0 GB for the smaller one. It runs on the CPU and is freed after 5 minutes unused.
 
 Privacy: spoken, summarized and explained text stays on this machine.

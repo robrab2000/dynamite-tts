@@ -5,11 +5,13 @@ mod app;
 mod applog;
 mod audio;
 mod autostart;
+mod download;
 mod eq;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod gnome;
 mod hotkey;
 mod lemonade;
+mod llm;
 mod paths;
 mod phonon;
 mod selection;

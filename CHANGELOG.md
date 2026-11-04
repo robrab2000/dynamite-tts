@@ -2,6 +2,22 @@
 
 The release workflow publishes the section for each tag as that release's notes.
 
+## Unreleased
+
+### New
+
+- **Summary and Explain work out of the box.** A small Qwen3 chat model (Apache 2.0) now runs inside the app with llama.cpp, on the GPU on Apple Silicon and the CPU elsewhere. It downloads the first time you use Summary or Explain, pinned and checked like the Phonon model, and is freed after 5 minutes unused.
+- **Two model sizes.** Settings → Modes offers Qwen3 1.7B (recommended; 1.1 GB download, up to about 1.7 GB of memory while loaded) and Qwen3 0.6B (400 MB, about 1.0 GB) for machines with less memory. The picker shows each model's estimated memory use.
+
+### Changed
+
+- **Lemonade is optional.** It stays available as a chat backend (Settings → Modes → Chat model → Lemonade), mainly for AMD Ryzen AI NPUs. The installers no longer install it unless you ask: the Windows option is unticked, and the macOS and Linux scripts take `--lemonade`.
+- Building from source now needs CMake (and libclang on Linux) for llama.cpp; `cargo build --no-default-features` leaves it out.
+
+### Upgrading
+
+- Settings from 0.2.0 switch Summary and Explain to the built-in model. If you'd rather keep using Lemonade, choose it in Settings → Modes; your Lemonade model and address are kept.
+
 ## v0.2.0
 
 A rewrite: one Rust app for Windows, macOS and Linux, replacing the separate C#, Swift and Python apps.

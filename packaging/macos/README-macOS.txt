@@ -20,11 +20,12 @@ INSTALL
 
    This happens because the download isn't notarized by Apple yet.
 
-3. The installer asks whether to install Lemonade:
+3. The installer asks whether to also install Lemonade Server:
 
-   - Y installs Lemonade Server and a small chat model (about 1 GB).
-     Summary and Explain modes need it.
-   - n skips it. Verbatim reading works without it.
+   - n (the default) skips it. Summary and Explain use a small chat
+     model built into the app, downloaded the first time you use them.
+   - y installs Lemonade Server, an optional alternative chat backend
+     you can pick in Settings > Modes.
 
 4. Dynamite TTS opens in the menu bar. When macOS asks, allow it under
    System Settings > Privacy & Security > Accessibility. It needs this
@@ -56,7 +57,7 @@ USE IT
 WHAT IT INSTALLS
 
 - The app: ~/Applications/DynamiteTTS.app
-- Settings, the voice model and Lemonade (if chosen):
+- Settings, the voice and chat models, and Lemonade (if chosen):
   ~/Library/Application Support/DynamiteTTS
 - Logs: ~/Library/Logs/DynamiteTTS
 
