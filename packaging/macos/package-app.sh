@@ -78,4 +78,7 @@ if [[ "${1:-}" == "--zip" ]]; then
   sed "s/__VERSION__/${VERSION}/g" "${ROOT}/packaging/macos/README-macOS.txt" > "${OUT}/${KIT}/README.txt"
   ditto -c -k --norsrc --keepParent "${OUT}/${KIT}" "${OUT}/${KIT}.zip"
   echo "Wrote ${OUT}/${KIT}.zip"
+  # And the bare installer, for people who'd rather run one file: `bash Install-Dynamite-TTS-v….command`.
+  cp "${STAGE}/Install-Dynamite-TTS.command" "${OUT}/Install-Dynamite-TTS-v${VERSION}.command"
+  echo "Wrote ${OUT}/Install-Dynamite-TTS-v${VERSION}.command"
 fi

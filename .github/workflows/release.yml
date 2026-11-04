@@ -57,6 +57,7 @@ jobs:
           path: |
             target/macos/DynamiteTTS-macos-arm64-v*.zip
             target/macos/Install-Dynamite-TTS-macOS-v*.zip
+            target/macos/Install-Dynamite-TTS-v*.command
 
   linux:
     # The oldest supported runner, so the binary runs on any newer glibc.
@@ -107,6 +108,7 @@ jobs:
             - If macOS won't open the installer, go to System Settings → Privacy & Security, click **Open Anyway**, and double-click it again.
             - Or open Terminal, type \`bash \` (with a space), drag the installer into the window, and press Return.
             - When the app opens, allow it under System Settings → Privacy & Security → Accessibility.
+            - \`Install-Dynamite-TTS-${tag}.command\` is the same installer as a single file. Browsers drop its execute bit, so run it from Terminal: type \`bash \` (with a space), drag it into the window, and press Return.
             - \`DynamiteTTS-macos-arm64-${tag}.zip\` has the app itself with the same installer, for installing offline.
           - **Linux (Ubuntu 22.04+):** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
 
