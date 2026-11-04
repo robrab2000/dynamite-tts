@@ -116,7 +116,9 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           ls -la artifacts
           if gh release view "$tag" >/dev/null 2>&1; then
+            # A re-run for a moved tag: replace the assets and refresh the notes.
             gh release upload "$tag" artifacts/* --clobber
+            gh release edit "$tag" --notes-file notes.md
           else
             gh release create "$tag" artifacts/* --title "Dynamite TTS $tag" --notes-file notes.md
           fi
