@@ -464,6 +464,47 @@ impl Worker {
 mod tests {
     use super::*;
 
+    const ELI5_CASES: [(&str, &str); 4] = [
+        (
+            "Lemonade",
+            "Lemonade was already running from the earlier install (port 13305) with Llama-3.2-1B-Instruct-GGUF loaded.",
+        ),
+        ("lemonade", "On hot days the kids sold lemonade from a stand at the end of the road."),
+        ("Kafka", "Kafka buffers the events until the workers catch up."),
+        ("Kafka", "Kafka wrote The Metamorphosis, about a man who wakes up as an insect."),
+    ];
+
+    /// Runs ELI5 on the built-in chat model, if it has been downloaded, and prints each meaning
+    /// and explanation. Run with `cargo test eli5_on_local_model -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    #[cfg(feature = "local-llm")]
+    fn eli5_on_local_model() {
+        let model = llm::find_model(&Settings::default().local_model);
+        if !llm::is_downloaded(model) {
+            eprintln!("{} not downloaded; skipping", model.id);
+            return;
+        }
+        let engine = llm::Engine::default();
+        let ask = |req: &llm::Request| engine.request(model.id, req, &|| false, &mut |_| {}).unwrap();
+        for (selection, context) in ELI5_CASES {
+            let started = std::time::Instant::now();
+            let question = text::eli5_meaning_message(selection, context);
+            let meaning = text::parse_meaning(&ask(&llm::Request {
+                system: text::ELI5_MEANING_PROMPT,
+                shots: &text::ELI5_MEANING_SHOTS,
+                user: &question,
+                max_tokens: text::ELI5_MEANING_MAX_TOKENS,
+                temperature: Some(text::ELI5_MEANING_TEMPERATURE),
+            }));
+            let message = text::eli5_user_message(selection, Some(context), meaning.as_deref());
+            let reply = ask(&llm::Request::new(text::ELI5_PROMPT, &message, text::ELI5_MAX_TOKENS));
+            let spoken = text::first_sentences(&text::sanitize(&reply), text::ELI5_MAX_SENTENCES);
+            println!("{selection} [{}] in {:?}\n    {spoken:?}\n", meaning.unwrap_or_default(), started.elapsed());
+            assert!(!spoken.is_empty() && !spoken.contains("<think>"));
+        }
+    }
+
     /// Runs ELI5 against a local Lemonade with the default chat model and prints each meaning
     /// and explanation, to check the prompts by ear. Run with
     /// `cargo test eli5_against_lemonade -- --ignored --nocapture`.
@@ -472,15 +513,7 @@ mod tests {
     fn eli5_against_lemonade() {
         let (client, base) = (lemonade::Client::new(), Settings::default().base_url);
         let model = Settings::default().chat_model;
-        let cases = [
-            (
-                "Lemonade",
-                "Lemonade was already running from the earlier install (port 13305) with Llama-3.2-1B-Instruct-GGUF loaded.",
-            ),
-            ("lemonade", "On hot days the kids sold lemonade from a stand at the end of the road."),
-            ("Kafka", "Kafka buffers the events until the workers catch up."),
-            ("Kafka", "Kafka wrote The Metamorphosis, about a man who wakes up as an insect."),
-        ];
+        let cases = ELI5_CASES;
         for (selection, context) in cases {
             for _ in 0..3 {
                 let meaning = client
