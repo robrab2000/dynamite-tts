@@ -43,16 +43,15 @@ It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator 
 
 ### macOS 14+ on Apple Silicon
 
-1. Unzip **`DynamiteTTS-macos-arm64-v….zip`** and double-click **Install Dynamite TTS.command**. Terminal opens and shows each step; the window stays open until you press Return.
+1. Download **`Install-Dynamite-TTS-v….command`** and double-click it. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return.
 2. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or run it from Terminal instead:
    ```bash
-   cd ~/Downloads/DynamiteTTS-macos-arm64-v*/
-   bash "Install Dynamite TTS.command"
+   bash ~/Downloads/Install-Dynamite-TTS-v*.command
    ```
 3. Answer **Y** to install Lemonade Server and its chat model if you want Summary and Explain, or **n** for Verbatim only.
 4. When the app opens, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
 
-The installer copies the app to `~/Applications`, so it needs no administrator password. Prefer to do it by hand? Drag **DynamiteTTS.app** to Applications, open it with right-click → **Open** (or **Open Anyway** as above), and run `install-lemonade.sh` from the zip for Summary and Explain.
+The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer next to it, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open** (or **Open Anyway** as above), and run `install-lemonade.sh` for Summary and Explain.
 
 ### Linux (Ubuntu 22.04+ and similar; GNOME on Wayland or X11)
 
@@ -162,7 +161,7 @@ Release packages:
 
 ```bash
 ./packaging/windows/build.ps1           # target/windows: zip, plus the installer if Inno Setup 6 is installed
-./packaging/macos/package-app.sh --zip  # target/macos: DynamiteTTS.app, and the zip with the .command installer
+./packaging/macos/package-app.sh --zip  # target/macos: DynamiteTTS.app, its zip, and the .command installer
 ./packaging/linux/package.sh            # target/linux: the tarball
 ```
 

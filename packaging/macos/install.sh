@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install Dynamite TTS on an Apple Silicon Mac from a release zip or a local build.
-# "Install Dynamite TTS.command" is the double-clickable front for this script.
+# Install-Dynamite-TTS.command is the double-clickable front for this script.
 #
 #   ./install.sh [DynamiteTTS.app]    copy the app to ~/Applications, install Lemonade with its
 #                                     chat model, and open it
