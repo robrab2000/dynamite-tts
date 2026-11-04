@@ -16,8 +16,9 @@ Press **`Ctrl+Shift+M`** to switch modes:
 - **Verbatim** reads the highlight as it is.
 - **Summary** reads a short summary of it.
 - **Explain** explains what the highlight means. On macOS it also sends the text around a short highlight, so "Electron" next to "desktop apps" isn't explained as a particle.
+- **ELI5** explains the highlight as if to a five-year-old: short sentences, everyday words, and one comparison from daily life. On macOS it reads the paragraphs around the highlight first, so it explains what the words mean in that passage.
 
-Summary and Explain use a small chat model that also runs inside the app. It downloads the first time you use one of them; Verbatim needs nothing but the app.
+Summary, Explain and ELI5 use a small chat model that also runs inside the app. It downloads the first time you use one of them; Verbatim needs nothing but the app.
 
 ## Features
 
@@ -75,7 +76,7 @@ Hardware: x86-64 builds need a CPU with AVX2 (Intel Haswell / AMD Excavator, abo
 | | |
 |---|---|
 | **`Ctrl+Shift+S`** | Read the highlight. Pressed again while speaking, it stops (or, if you turn that off in Settings, reads the new highlight). |
-| **`Ctrl+Shift+M`** | Switch mode: Verbatim → Summary → Explain. |
+| **`Ctrl+Shift+M`** | Switch mode: Verbatim → Summary → Explain → ELI5. |
 | **Status pill** | Click it to stop speaking. |
 | **Tray menu** | Mode, Settings…, Quit. On Windows, double-click the tray icon for Settings. |
 
@@ -122,7 +123,7 @@ The same program is a remote control for the running app (this is what the Linux
 ```bash
 dynamite-tts                 # start the app, or open Settings if it's running
 dynamite-tts speak           # read the highlight
-dynamite-tts toggle-mode     # Verbatim → Summary → Explain
+dynamite-tts toggle-mode     # Verbatim → Summary → Explain → ELI5
 dynamite-tts stop | settings | ping | quit
 dynamite-tts --speak "Hello" # read some text
 ```
@@ -142,8 +143,8 @@ Nothing you highlight is sent over the network or written to disk. The only down
 - **Nothing happens when I press the shortcut.** Another app may own the same keys; Dynamite says so when it starts. Pick another shortcut in Settings → Shortcuts. On Linux outside GNOME, bind `dynamite-tts speak` in your desktop's keyboard settings.
 - **"No text selected" on macOS.** Allow Dynamite TTS under System Settings → Privacy & Security → Accessibility, then quit and reopen it.
 - **"No text selected" on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11).
-- **Summary or Explain is slow or fails with "Not enough memory".** Choose the Qwen3 0.6B model in Settings → Modes. The first request after starting the app also loads the model, which takes a few seconds.
-- **Summary or Explain says Lemonade isn't running.** This only applies when Settings → Modes → Chat model is set to Lemonade. Switch it to Built in, or install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
+- **Summary, Explain or ELI5 is slow or fails with "Not enough memory".** Choose the Qwen3 0.6B model in Settings → Modes. The first request after starting the app also loads the model, which takes a few seconds.
+- **Summary, Explain or ELI5 says Lemonade isn't running.** This only applies when Settings → Modes → Chat model is set to Lemonade. Switch it to Built in, or install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
 - **Something else.** The log (see above) records what the app did, without the text it read. Settings → General → Open folder takes you there.
 
 ## Building from source
@@ -177,7 +178,7 @@ Some checks render images instead of needing a screen: `cargo test -- --ignored`
 src/
 ├── main.rs          command line: start the app, or send a command to the running one
 ├── app.rs           event loop (tao): tray, shortcuts, status pill, control commands
-├── speech.rs        sanitize → Summary/Explain → Phonon → player; newer requests cancel older ones
+├── speech.rs        sanitize → Summary/Explain/ELI5 → Phonon → player; newer requests cancel older ones
 ├── llm.rs           the built-in chat model (llama.cpp): pinned Qwen3 downloads, prompts, idle unload
 ├── phonon.rs        in-process Phonon (ptts): pinned, hash-checked model download, voices, speed
 ├── voices.rs        the Phonon voice catalogue (assets/phonon-voices.jsonl)
@@ -194,7 +195,7 @@ src/
 ├── gnome.rs         GNOME custom shortcuts
 ├── control.rs       single-instance lock and the local control socket / named pipe
 ├── autostart.rs     start at login: Run key, LaunchAgent, XDG autostart
-├── text.rs          Markdown and URL cleanup, chunking, Summary/Explain prompts
+├── text.rs          Markdown and URL cleanup, chunking, Summary/Explain/ELI5 prompts
 └── applog.rs, paths.rs
 examples/make_icons.rs   regenerates the icons from the logo
 packaging/               Windows installer, macOS app bundle, Linux tarball and scripts

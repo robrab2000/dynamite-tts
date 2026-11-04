@@ -142,7 +142,7 @@ else
   echo "Dynamite TTS did not answer; start it from the app grid or run: dynamite-tts"
 fi
 echo
-echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain."
+echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."
 echo "On GNOME the shortcuts were added under Settings > Keyboard > Custom Shortcuts."
 echo "On other desktops bind these two commands yourself:"
 echo "  ${BIN}/dynamite-tts speak"

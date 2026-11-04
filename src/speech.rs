@@ -1,4 +1,4 @@
-//! The speech pipeline: cleanup, optional Summary / Explain through the built-in chat model
+//! The speech pipeline: cleanup, optional Summary / Explain / ELI5 through the built-in chat model
 //! (llama.cpp in-process) or Lemonade's, then Phonon (in-process) streamed into the player.
 //!
 //! Public methods run on the UI thread. Each request runs on a worker thread and reports back
@@ -99,7 +99,7 @@ impl Speech {
         true
     }
 
-    /// Speaks `raw` (with optional surrounding text for Explain) in `mode`.
+    /// Speaks `raw` (with optional surrounding text for Explain and ELI5) in `mode`.
     /// Returns a notice to show when there is nothing to say.
     pub fn speak(
         &mut self,
@@ -175,6 +175,12 @@ struct Worker {
     last_phase: std::sync::Mutex<String>,
 }
 
+/// A chat backend ready to answer: the built-in model, or Lemonade with its server up.
+enum ChatTarget {
+    Local(&'static llm::ChatModel),
+    Lemonade { base: String, model: String },
+}
+
 impl Worker {
     fn alive(&self) -> bool {
         self.current.load(Ordering::SeqCst) == self.generation
@@ -191,13 +197,25 @@ impl Worker {
     fn run(&self, text: &str, context: Option<String>, mode: SpeakMode) -> Result<(), String> {
         let cancelled = || !self.alive();
         let mut spoken = text.to_string();
-        if mode != SpeakMode::Verbatim {
-            let explain = mode == SpeakMode::Explain;
+        if mode.uses_chat() {
             let started = Instant::now();
-            let reply = match self.settings.chat_backend {
-                ChatBackend::Local => self.local_reply(text, context.as_deref(), mode),
-                ChatBackend::Lemonade => self.lemonade_reply(text, context.as_deref(), mode),
-            }?;
+            let backend = self.prepare_chat(mode)?;
+            if cancelled() {
+                return Ok(());
+            }
+            // ELI5's first step: what a short highlight is in the passage around it.
+            let meaning = match context.as_deref() {
+                Some(c) if mode == SpeakMode::Eli5 && text::is_short_selection(text) => {
+                    self.eli5_meaning(&backend, text, c)
+                }
+                _ => None,
+            };
+            if cancelled() {
+                return Ok(());
+            }
+            self.phase(Self::working_phase(mode));
+            let (system, user, max_tokens) = self.prompts(text, context.as_deref(), meaning.as_deref(), mode);
+            let reply = self.ask(&backend, llm::Request::new(&system, &user, max_tokens), mode)?;
             if cancelled() {
                 return Ok(());
             }
@@ -210,8 +228,16 @@ impl Worker {
                 started.elapsed().as_millis()
             );
             spoken = text::sanitize(&reply);
+            if mode == SpeakMode::Eli5 {
+                spoken = text::first_sentences(&spoken, text::ELI5_MAX_SENTENCES);
+            }
             if spoken.is_empty() {
-                return Err(if explain { "The explanation was empty." } else { "The summary was empty." }.into());
+                return Err(if mode == SpeakMode::Summary {
+                    "The summary was empty."
+                } else {
+                    "The explanation was empty."
+                }
+                .into());
             }
         }
         if cancelled() {
@@ -222,78 +248,122 @@ impl Worker {
         self.speak_phonon(&chunks)
     }
 
-    /// The system prompt, user message and reply limit for a Summary or Explain request.
-    fn prompts(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> (String, String, Option<u32>) {
+    /// The system prompt, user message and reply limit for a chat request in `mode`.
+    fn prompts(
+        &self,
+        text: &str,
+        context: Option<&str>,
+        meaning: Option<&str>,
+        mode: SpeakMode,
+    ) -> (String, String, u32) {
         let s = &self.settings;
-        if mode == SpeakMode::Explain {
-            let n = s.explain_sentence_count;
-            (
-                text::explain_prompt(s.explain_audience, n),
-                text::explain_user_message(text, context),
-                Some(text::explain_max_tokens(n)),
-            )
-        } else {
-            (text::SUMMARY_PROMPT.to_string(), text.to_string(), None)
+        match mode {
+            SpeakMode::Explain => {
+                let n = s.explain_sentence_count;
+                (
+                    text::explain_prompt(s.explain_audience, n),
+                    text::explain_user_message(text, context),
+                    text::explain_max_tokens(n),
+                )
+            }
+            SpeakMode::Eli5 => {
+                (text::ELI5_PROMPT.to_string(), text::eli5_user_message(text, context, meaning), text::ELI5_MAX_TOKENS)
+            }
+            _ => (text::SUMMARY_PROMPT.to_string(), text.to_string(), text::SUMMARY_MAX_TOKENS),
         }
     }
 
     fn working_phase(mode: SpeakMode) -> &'static str {
-        if mode == SpeakMode::Explain { "Explaining…" } else { "Summarizing…" }
+        match mode {
+            SpeakMode::Explain => "Explaining…",
+            SpeakMode::Eli5 => "Simplifying…",
+            _ => "Summarizing…",
+        }
     }
 
-    fn local_reply(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> Result<String, String> {
-        let cancelled = || !self.alive();
-        let (system, user, max_tokens) = self.prompts(text, context, mode);
-        let model = llm::find_model(&self.settings.local_model);
-        let mut last_percent = None;
-        if !self.llm.is_loaded() && llm::is_downloaded(model) {
-            self.phase("Loading the chat model…");
-        }
-        let reply = self.llm.chat(
-            model.id,
-            &system,
-            &user,
-            max_tokens.unwrap_or(text::SUMMARY_MAX_TOKENS),
-            &cancelled,
-            &mut |p| match p {
-                llm::Progress::Downloading(f) => {
-                    self.download_phase("Downloading the chat model", f, &mut last_percent);
+    /// Gets the chosen chat backend ready for `mode`: the built-in model is loaded on first use,
+    /// while Lemonade's server and model are started and fetched here.
+    fn prepare_chat(&self, mode: SpeakMode) -> Result<ChatTarget, String> {
+        match self.settings.chat_backend {
+            ChatBackend::Local => {
+                let model = llm::find_model(&self.settings.local_model);
+                if !self.llm.is_loaded() && llm::is_downloaded(model) {
+                    self.phase("Loading the chat model…");
                 }
-                llm::Progress::Loading => self.phase("Loading the chat model…"),
-                llm::Progress::Writing => self.phase(Self::working_phase(mode)),
-            },
-        );
-        reply.map_err(|e| self.chat_error(e.0, mode))
+                Ok(ChatTarget::Local(model))
+            }
+            ChatBackend::Lemonade => {
+                let base = self.settings.base_url.clone();
+                let cancelled = || !self.alive();
+                if !self.client.is_healthy(&base) {
+                    self.phase("Starting Lemonade…");
+                }
+                self.client.ensure_server(&base, &cancelled).map_err(|e| self.chat_error(e.0, mode))?;
+                if cancelled() {
+                    return Ok(ChatTarget::Lemonade { base, model: String::new() });
+                }
+                self.phase(Self::working_phase(mode));
+                let model = self.client.pick_chat_model(&base, &self.settings.chat_model);
+                self.client
+                    .ensure_model(&base, &model, &|| self.phase("Downloading the chat model (once)…"))
+                    .map_err(|e| self.chat_error(e.0, mode))?;
+                Ok(ChatTarget::Lemonade { base, model })
+            }
+        }
     }
 
-    fn lemonade_reply(&self, text: &str, context: Option<&str>, mode: SpeakMode) -> Result<String, String> {
-        let base = self.settings.base_url.as_str();
+    /// One chat request on a prepared backend. A cancelled request returns an empty reply.
+    fn ask(&self, target: &ChatTarget, req: llm::Request, mode: SpeakMode) -> Result<String, String> {
         let cancelled = || !self.alive();
-        if !self.client.is_healthy(base) {
-            self.phase("Starting Lemonade…");
+        match target {
+            ChatTarget::Local(model) => {
+                let mut last_percent = None;
+                self.llm
+                    .request(model.id, &req, &cancelled, &mut |p| match p {
+                        llm::Progress::Downloading(f) => {
+                            self.download_phase("Downloading the chat model", f, &mut last_percent);
+                        }
+                        llm::Progress::Loading => self.phase("Loading the chat model…"),
+                        llm::Progress::Writing => self.phase(Self::working_phase(mode)),
+                    })
+                    .map_err(|e| self.chat_error(e.0, mode))
+            }
+            ChatTarget::Lemonade { base, model } => {
+                if cancelled() {
+                    return Ok(String::new());
+                }
+                self.client
+                    .chat_turns(base, model, req.system, req.shots, req.user, Some(req.max_tokens), req.temperature)
+                    .map_err(|e| self.chat_error(e.0, mode))
+            }
         }
-        self.client.ensure_server(base, &cancelled).map_err(|e| self.chat_error(e.0, mode))?;
-        if cancelled() {
-            return Ok(String::new());
-        }
-        self.phase(Self::working_phase(mode));
-        let model = self.client.pick_chat_model(base, &self.settings.chat_model);
-        self.client
-            .ensure_model(base, &model, &|| self.phase("Downloading the chat model (once)…"))
-            .map_err(|e| self.chat_error(e.0, mode))?;
-        if cancelled() {
-            return Ok(String::new());
-        }
-        self.phase(Self::working_phase(mode));
-        let (system, user, max_tokens) = self.prompts(text, context, mode);
-        self.client.chat(base, &model, &system, &user, max_tokens).map_err(|e| self.chat_error(e.0, mode))
+    }
+
+    /// ELI5's first step: what the highlight is in the passage. On failure ELI5 goes on without it.
+    fn eli5_meaning(&self, target: &ChatTarget, selection: &str, context: &str) -> Option<String> {
+        let started = Instant::now();
+        let user = text::eli5_meaning_message(selection, context);
+        let req = llm::Request {
+            system: text::ELI5_MEANING_PROMPT,
+            shots: &text::ELI5_MEANING_SHOTS,
+            user: &user,
+            max_tokens: text::ELI5_MEANING_MAX_TOKENS,
+            temperature: Some(text::ELI5_MEANING_TEMPERATURE),
+        };
+        let meaning = self.ask(target, req, SpeakMode::Eli5).ok().as_deref().and_then(text::parse_meaning);
+        // Timings only; the log never records what was read.
+        log!(
+            "eli5 meaning: {} in {} ms",
+            if meaning.is_some() { "found" } else { "none" },
+            started.elapsed().as_millis()
+        );
+        meaning
     }
 
     fn chat_error(&self, message: String, mode: SpeakMode) -> String {
-        let explain = mode == SpeakMode::Explain;
         let title = match self.settings.chat_backend {
-            ChatBackend::Local => llm::failure_title(&message, explain),
-            ChatBackend::Lemonade => lemonade::failure_title(&message, explain),
+            ChatBackend::Local => llm::failure_title(&message, mode.title()),
+            ChatBackend::Lemonade => lemonade::failure_title(&message, mode.title()),
         };
         format!("{title}: {message}")
     }
@@ -387,5 +457,52 @@ impl Worker {
             )
             .map_err(|e| e.0)?;
         self.finish(session, pushed, "Phonon")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs ELI5 against a local Lemonade with the default chat model and prints each meaning
+    /// and explanation, to check the prompts by ear. Run with
+    /// `cargo test eli5_against_lemonade -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn eli5_against_lemonade() {
+        let (client, base) = (lemonade::Client::new(), Settings::default().base_url);
+        let model = Settings::default().chat_model;
+        let cases = [
+            (
+                "Lemonade",
+                "Lemonade was already running from the earlier install (port 13305) with Llama-3.2-1B-Instruct-GGUF loaded.",
+            ),
+            ("lemonade", "On hot days the kids sold lemonade from a stand at the end of the road."),
+            ("Kafka", "Kafka buffers the events until the workers catch up."),
+            ("Kafka", "Kafka wrote The Metamorphosis, about a man who wakes up as an insect."),
+        ];
+        for (selection, context) in cases {
+            for _ in 0..3 {
+                let meaning = client
+                    .chat_turns(
+                        &base,
+                        &model,
+                        text::ELI5_MEANING_PROMPT,
+                        &text::ELI5_MEANING_SHOTS,
+                        &text::eli5_meaning_message(selection, context),
+                        Some(text::ELI5_MEANING_MAX_TOKENS),
+                        Some(text::ELI5_MEANING_TEMPERATURE),
+                    )
+                    .ok()
+                    .as_deref()
+                    .and_then(text::parse_meaning);
+                let message = text::eli5_user_message(selection, Some(context), meaning.as_deref());
+                let reply = client
+                    .chat_turns(&base, &model, text::ELI5_PROMPT, &[], &message, Some(text::ELI5_MAX_TOKENS), None)
+                    .unwrap();
+                let spoken = text::first_sentences(&text::sanitize(&reply), text::ELI5_MAX_SENTENCES);
+                println!("{selection} [{}]\n    {spoken:?}\n", meaning.unwrap_or_default());
+            }
+        }
     }
 }

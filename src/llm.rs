@@ -1,4 +1,4 @@
-//! The built-in chat model for Summary and Explain: llama.cpp in-process.
+//! The built-in chat model for Summary, Explain and ELI5: llama.cpp in-process.
 //!
 //! The models are small Qwen3 instruct checkpoints (Apache 2.0), quantised to 4 bits. Each
 //! downloads once into `paths::models_dir()/chat`, pinned to a commit and checked by SHA-256.
@@ -172,8 +172,25 @@ pub fn context_size(prompt_tokens: usize, max_tokens: u32) -> u32 {
     needed.div_ceil(256).saturating_mul(256).min(MAX_CONTEXT)
 }
 
-/// Short title for a failed request.
-pub fn failure_title(message: &str, explain: bool) -> String {
+/// One chat request: the system prompt, optional worked examples (user, assistant turns sent
+/// before `user`), the user message, and how the reply is sampled.
+pub struct Request<'a> {
+    pub system: &'a str,
+    pub shots: &'a [(&'a str, &'a str)],
+    pub user: &'a str,
+    pub max_tokens: u32,
+    /// None for Qwen3's recommended 0.7.
+    pub temperature: Option<f32>,
+}
+
+impl<'a> Request<'a> {
+    pub fn new(system: &'a str, user: &'a str, max_tokens: u32) -> Self {
+        Request { system, shots: &[], user, max_tokens, temperature: None }
+    }
+}
+
+/// Short title for a failed request in `mode` (Summary, Explain or ELI5).
+pub fn failure_title(message: &str, mode: &str) -> String {
     let m = message.to_lowercase();
     if ["could not download", "download of", "checksum", "wrong size"].iter().any(|p| m.contains(p)) {
         return "Chat model download failed".into();
@@ -181,7 +198,7 @@ pub fn failure_title(message: &str, explain: bool) -> String {
     if ["memory", "alloc"].iter().any(|p| m.contains(p)) {
         return "Not enough memory for the chat model".into();
     }
-    format!("{} failed", if explain { "Explain" } else { "Summary" })
+    format!("{mode} failed")
 }
 
 #[cfg(feature = "local-llm")]
@@ -236,15 +253,20 @@ mod engine {
     }
 
     /// The chat prompt, ending in the assistant header and the no-thinking prefill.
-    fn prompt(model: &LlamaModel, system: &str, user: &str) -> Result<String> {
+    fn prompt(model: &LlamaModel, req: &Request, user: &str) -> Result<String> {
         let template = model
             .chat_template(None)
             .or_else(|_| LlamaChatTemplate::new("chatml"))
             .map_err(|e| fail("The chat model has no usable chat template", e))?;
-        let messages = [
-            LlamaChatMessage::new("system".into(), system.into()).map_err(|e| fail("Bad prompt", e))?,
-            LlamaChatMessage::new("user".into(), user.into()).map_err(|e| fail("Bad prompt", e))?,
-        ];
+        let message = |role: &str, content: &str| {
+            LlamaChatMessage::new(role.into(), content.into()).map_err(|e| fail("Bad prompt", e))
+        };
+        let mut messages = vec![message("system", req.system)?];
+        for (question, answer) in req.shots {
+            messages.push(message("user", question)?);
+            messages.push(message("assistant", answer)?);
+        }
+        messages.push(message("user", user)?);
         let mut prompt =
             model.apply_chat_template(&template, &messages, true).map_err(|e| fail("Bad chat template", e))?;
         prompt.push_str(NO_THINK_PREFILL);
@@ -252,11 +274,11 @@ mod engine {
     }
 
     /// The prompt's tokens, cutting `user` from the end until prompt and reply fit `MAX_CONTEXT`.
-    fn tokens(model: &LlamaModel, system: &str, user: &str, max_tokens: u32) -> Result<Vec<LlamaToken>> {
+    fn tokens(model: &LlamaModel, req: &Request, max_tokens: u32) -> Result<Vec<LlamaToken>> {
         let budget = (MAX_CONTEXT - max_tokens - 16) as usize;
-        let mut user = user.to_string();
+        let mut user = req.user.to_string();
         for _ in 0..4 {
-            let tokens = model.vocab().tokenize(prompt(model, system, &user)?.as_bytes(), true, true);
+            let tokens = model.vocab().tokenize(prompt(model, req, &user)?.as_bytes(), true, true);
             if tokens.len() <= budget {
                 return Ok(tokens);
             }
@@ -268,17 +290,11 @@ mod engine {
         Err(LlmError("The text is too long for the chat model.".into()))
     }
 
-    pub fn generate(
-        loaded: &Loaded,
-        system: &str,
-        user: &str,
-        max_tokens: u32,
-        cancelled: &dyn Fn() -> bool,
-    ) -> Result<String> {
+    pub fn generate(loaded: &Loaded, req: &Request, cancelled: &dyn Fn() -> bool) -> Result<String> {
         let backend = backend()?;
         let model = &loaded.model;
-        let max_tokens = max_tokens.clamp(16, MAX_CONTEXT / 2);
-        let prompt = tokens(model, system, user, max_tokens)?;
+        let max_tokens = req.max_tokens.clamp(16, MAX_CONTEXT / 2);
+        let prompt = tokens(model, req, max_tokens)?;
         let n_ctx = context_size(prompt.len(), max_tokens);
         let threads = default_threads();
         let params = LlamaContextParams::default()
@@ -301,7 +317,7 @@ mod engine {
             LlamaSampler::top_k(20),
             LlamaSampler::top_p(0.8, 1),
             LlamaSampler::min_p(0.0, 1),
-            LlamaSampler::temp(0.7),
+            LlamaSampler::temp(req.temperature.unwrap_or(0.7)),
             LlamaSampler::dist(0x5eed),
         ]);
         let vocab = model.vocab();
@@ -344,7 +360,7 @@ mod engine {
         Err(LlmError(MISSING.into()))
     }
 
-    pub fn generate(_: &Loaded, _: &str, _: &str, _: u32, _: &dyn Fn() -> bool) -> Result<String> {
+    pub fn generate(_: &Loaded, _: &Request, _: &dyn Fn() -> bool) -> Result<String> {
         Err(LlmError(MISSING.into()))
     }
 }
@@ -374,14 +390,12 @@ impl Engine {
         self.state.lock().map(|s| s.is_some()).unwrap_or(false)
     }
 
-    /// Writes a reply to `user` under the `system` instructions with the model `model_id`,
-    /// downloading and loading it first if needed. A cancelled call returns an empty reply.
-    pub fn chat(
+    /// Writes a reply to the request with the model `model_id`, downloading and loading it first if
+    /// needed. A cancelled call returns an empty reply.
+    pub fn request(
         &self,
         model_id: &str,
-        system: &str,
-        user: &str,
-        max_tokens: u32,
+        req: &Request,
         cancelled: &dyn Fn() -> bool,
         on_progress: &mut dyn FnMut(Progress),
     ) -> Result<String> {
@@ -400,7 +414,7 @@ impl Engine {
         }
         on_progress(Progress::Writing);
         let s = state.as_mut().expect("loaded above");
-        let reply = engine::generate(&s.loaded, system, user, max_tokens, cancelled);
+        let reply = engine::generate(&s.loaded, req, cancelled);
         s.last_used = Instant::now();
         reply
     }
@@ -475,14 +489,15 @@ mod tests {
 
     #[test]
     fn titles_failures() {
-        assert_eq!(failure_title("Could not download x: 404", false), "Chat model download failed");
-        assert_eq!(failure_title("x.gguf failed its checksum.", true), "Chat model download failed");
+        assert_eq!(failure_title("Could not download x: 404", "Summary"), "Chat model download failed");
+        assert_eq!(failure_title("x.gguf failed its checksum.", "Explain"), "Chat model download failed");
         assert_eq!(
-            failure_title("Not enough memory for the chat model: alloc", true),
+            failure_title("Not enough memory for the chat model: alloc", "Explain"),
             "Not enough memory for the chat model"
         );
-        assert_eq!(failure_title("boom", true), "Explain failed");
-        assert_eq!(failure_title("boom", false), "Summary failed");
+        assert_eq!(failure_title("boom", "Explain"), "Explain failed");
+        assert_eq!(failure_title("boom", "Summary"), "Summary failed");
+        assert_eq!(failure_title("boom", "ELI5"), "ELI5 failed");
     }
 
     #[test]
@@ -511,37 +526,27 @@ Hubble Space Telescope. This enables investigations across many fields of astron
 observation of the first stars and the formation of the first galaxies.";
             let started = Instant::now();
             let reply = engine
-                .chat(
+                .request(
                     model.id,
-                    crate::text::SUMMARY_PROMPT,
-                    text,
-                    crate::text::SUMMARY_MAX_TOKENS,
+                    &Request::new(crate::text::SUMMARY_PROMPT, text, crate::text::SUMMARY_MAX_TOKENS),
                     &|| false,
                     &mut |_| {},
                 )
                 .unwrap();
             let first = started.elapsed();
             let started = Instant::now();
+            let explain = crate::text::explain_prompt(crate::settings::ExplainAudience::General, 2);
             let again = engine
-                .chat(
-                    model.id,
-                    &crate::text::explain_prompt(crate::settings::ExplainAudience::General, 2),
-                    "infrared astronomy",
-                    192,
-                    &|| false,
-                    &mut |_| {},
-                )
+                .request(model.id, &Request::new(&explain, "infrared astronomy", 192), &|| false, &mut |_| {})
                 .unwrap();
             let warm = started.elapsed();
             // About 3,500 tokens: close to the largest context a request can use.
             let long = text.repeat(40);
             let started = Instant::now();
             let long_reply = engine
-                .chat(
+                .request(
                     model.id,
-                    crate::text::SUMMARY_PROMPT,
-                    &long,
-                    crate::text::SUMMARY_MAX_TOKENS,
+                    &Request::new(crate::text::SUMMARY_PROMPT, &long, crate::text::SUMMARY_MAX_TOKENS),
                     &|| false,
                     &mut |_| {},
                 )

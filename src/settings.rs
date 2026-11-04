@@ -18,16 +18,18 @@ pub enum SpeakMode {
     Verbatim,
     Summary,
     Explain,
+    Eli5,
 }
 
 impl SpeakMode {
-    pub const ALL: [SpeakMode; 3] = [SpeakMode::Verbatim, SpeakMode::Summary, SpeakMode::Explain];
+    pub const ALL: [SpeakMode; 4] = [SpeakMode::Verbatim, SpeakMode::Summary, SpeakMode::Explain, SpeakMode::Eli5];
 
     pub fn title(self) -> &'static str {
         match self {
             SpeakMode::Verbatim => "Verbatim",
             SpeakMode::Summary => "Summary",
             SpeakMode::Explain => "Explain",
+            SpeakMode::Eli5 => "ELI5",
         }
     }
 
@@ -35,7 +37,8 @@ impl SpeakMode {
         match self {
             SpeakMode::Verbatim => SpeakMode::Summary,
             SpeakMode::Summary => SpeakMode::Explain,
-            SpeakMode::Explain => SpeakMode::Verbatim,
+            SpeakMode::Explain => SpeakMode::Eli5,
+            SpeakMode::Eli5 => SpeakMode::Verbatim,
         }
     }
 
@@ -44,7 +47,18 @@ impl SpeakMode {
             SpeakMode::Verbatim => "verbatim",
             SpeakMode::Summary => "summary",
             SpeakMode::Explain => "explain",
+            SpeakMode::Eli5 => "eli5",
         }
+    }
+
+    /// Summary, Explain and ELI5 go through the chat model (built in, or Lemonade).
+    pub fn uses_chat(self) -> bool {
+        self != SpeakMode::Verbatim
+    }
+
+    /// Explain and ELI5 read the text around the highlight to settle what it means.
+    pub fn uses_context(self) -> bool {
+        matches!(self, SpeakMode::Explain | SpeakMode::Eli5)
     }
 
     fn parse(s: &str) -> Option<Self> {
@@ -608,6 +622,7 @@ mod tests {
     fn modes_cycle() {
         assert_eq!(SpeakMode::Verbatim.next(), SpeakMode::Summary);
         assert_eq!(SpeakMode::Summary.next(), SpeakMode::Explain);
-        assert_eq!(SpeakMode::Explain.next(), SpeakMode::Verbatim);
+        assert_eq!(SpeakMode::Explain.next(), SpeakMode::Eli5);
+        assert_eq!(SpeakMode::Eli5.next(), SpeakMode::Verbatim);
     }
 }

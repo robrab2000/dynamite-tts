@@ -130,7 +130,9 @@ impl Page {
     fn subtitle(self) -> &'static str {
         match self {
             Page::Voice => "How the highlight is read aloud. Everything runs on this computer.",
-            Page::Modes => "Read the highlight as it is, summarize it, or explain it first.",
+            Page::Modes => {
+                "Read the highlight as it is, summarize it, or explain it first, plainly or like you're five."
+            }
             Page::Shortcuts => "Keys that work from any app.",
             Page::General => "Behaviour, start-up and diagnostics.",
         }
@@ -214,7 +216,10 @@ impl SettingsApp {
                 let note = if ids.is_empty() { "Lemonade has no models yet.".to_string() } else { String::new() };
                 (ids, note)
             } else {
-                (Vec::new(), "Lemonade isn't running. It starts the first time Summary or Explain is used.".into())
+                (
+                    Vec::new(),
+                    "Lemonade isn't running. It starts the first time Summary, Explain or ELI5 is used.".into(),
+                )
             };
             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
             s.models = models;
@@ -649,7 +654,7 @@ Summary or Explain is used, and is freed after {} minutes unused.",
         card(ui, |ui| {
             self.hotkey_row(ui, "Speak selection", "Reads the highlighted text.", Recording::Speak);
             divider(ui);
-            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary and Explain.", Recording::Mode);
+            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary, Explain and ELI5.", Recording::Mode);
         });
         if !self.hotkey_error.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.hotkey_error);
@@ -1013,7 +1018,7 @@ mod tests {
             (
                 Page::Modes,
                 ChatBackend::Local,
-                &["Speak mode", "Verbatim", "Explain", "Chat model", "Built in", "Model"],
+                &["Speak mode", "Verbatim", "Explain", "ELI5", "Chat model", "Built in", "Model"],
             ),
             (Page::Modes, ChatBackend::Lemonade, &["Chat model", "Lemonade model", "Server address"]),
             (Page::Shortcuts, ChatBackend::Local, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),

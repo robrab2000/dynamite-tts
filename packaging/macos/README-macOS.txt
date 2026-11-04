@@ -22,7 +22,7 @@ INSTALL
 
 3. The installer asks whether to also install Lemonade Server:
 
-   - n (the default) skips it. Summary and Explain use a small chat
+   - n (the default) skips it. Summary, Explain and ELI5 use a small chat
      model built into the app, downloaded the first time you use them.
    - y installs Lemonade Server, an optional alternative chat backend
      you can pick in Settings > Modes.
@@ -50,7 +50,7 @@ USE IT
 
 - Highlight text in any app and press Control-Shift-S to hear it.
 - Press Control-Shift-S again to stop, or click the status pill.
-- Control-Shift-M switches between Verbatim, Summary and Explain.
+- Control-Shift-M switches between Verbatim, Summary, Explain and ELI5.
 - Settings are in the menu bar icon's menu.
 
 

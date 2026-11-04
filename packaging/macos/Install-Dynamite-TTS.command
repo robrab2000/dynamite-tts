@@ -64,7 +64,7 @@ else
 fi
 
 args=()
-echo "Summary and Explain use a small chat model built into the app; it downloads the first time"
+echo "Summary, Explain and ELI5 use a small chat model built into the app; it downloads the first time"
 echo "you use them. Lemonade Server is an optional alternative, and most people don't need it."
 read -r -p "Also install Lemonade? [y/N] " answer || answer=""
 case "${answer}" in

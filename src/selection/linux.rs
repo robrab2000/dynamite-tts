@@ -64,10 +64,12 @@ fn read(primary: bool) -> Option<String> {
     None
 }
 
-/// The highlight, falling back to the clipboard when nothing is highlighted.
-pub fn capture() -> Capture {
+/// The highlight, falling back to the clipboard when nothing is highlighted, and with
+/// `include_context` the text around it through AT-SPI.
+pub fn capture(include_context: bool) -> Capture {
     let text = [true, false].into_iter().find_map(|primary| read(primary).filter(|t| !t.trim().is_empty()));
-    Capture { text, context: None }
+    let context = text.as_deref().filter(|_| include_context).and_then(super::atspi::context);
+    Capture { text, context }
 }
 
 pub fn missing_tools() -> Option<String> {

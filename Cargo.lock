@@ -1204,6 +1204,7 @@ dependencies = [
  "winreg",
  "winresource",
  "xn",
+ "zbus",
 ]
 
 [[package]]
