@@ -1,8 +1,8 @@
 #!/bin/bash
 # Double-click this file (or run `bash "Install Dynamite TTS.command"` in Terminal) to install the
 # DynamiteTTS.app next to it. Terminal opens, prints each stage, and stays open until you press
-# Return. It copies the app to ~/Applications, optionally installs Lemonade with its chat model
-# for Summary and Explain, and opens the app.
+# Return. It copies the app to ~/Applications, optionally installs AMD's Lemonade Server, and
+# opens the app.
 #
 # Downloads are quarantined, so the first double-click may be refused: choose Open Anyway under
 # System Settings → Privacy & Security, or run it from Terminal with bash.
@@ -40,11 +40,11 @@ if [[ ! -d "${HERE}/DynamiteTTS.app" ]]; then
 fi
 
 args=()
-echo "Summary and Explain need Lemonade Server and a small chat model (about 1 GB, downloaded now)."
-echo "Verbatim reading works without it."
-read -r -p "Install Lemonade? [Y/n] " answer || answer=""
+echo "Summary and Explain use a small chat model built into the app; it downloads the first time"
+echo "you use them. Lemonade Server is an optional alternative, and most people don't need it."
+read -r -p "Also install Lemonade? [y/N] " answer || answer=""
 case "${answer}" in
-  n|N|no|No|NO) args+=(--no-lemonade) ;;
+  y|Y|yes|Yes|YES) args+=(--lemonade) ;;
 esac
 echo
 

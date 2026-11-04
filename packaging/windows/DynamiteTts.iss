@@ -47,12 +47,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 WindowsVersionNotSupported=Dynamite TTS requires Windows 10 version 1809 (October 2018) or newer, or Windows 11.
 OnlyOnTheseArchitectures=Dynamite TTS requires a 64-bit version of Windows.
 InfoBeforeLabel=Dependencies and optional components
-InfoBeforeClickLabel=Please review what will be installed. On the next page you can opt out of Lemonade Server (Summary mode only).
+InfoBeforeClickLabel=Please review what will be installed. On the next page you can add Lemonade Server (optional).
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "startupicon"; Description: "Start Dynamite TTS when I sign in to Windows"; GroupDescription: "Startup:"
-Name: "installlemonade"; Description: "Install Lemonade Server (needed for Summary mode; opt out if you only want Verbatim TTS)"; GroupDescription: "Optional components:"
+Name: "installlemonade"; Description: "Install Lemonade Server (optional: an alternative chat backend for AMD Ryzen AI NPUs)"; GroupDescription: "Optional components:"; Flags: unchecked
 
 [Files]
 ; The app and the bundled Phonon model, staged by build.ps1.
@@ -81,7 +81,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
 ; Optional Lemonade via winget (non-fatal if it fails — Settings can retry).
 Filename: "{cmd}"; \
   Parameters: "/c winget install AMD.LemonadeServer --accept-package-agreements --accept-source-agreements --silent"; \
-  StatusMsg: "Installing Lemonade Server (Summary mode)…"; \
+  StatusMsg: "Installing Lemonade Server (optional)…"; \
   Flags: runhidden waituntilterminated; \
   Tasks: installlemonade; \
   Check: ShouldInstallLemonade
