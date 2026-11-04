@@ -571,7 +571,7 @@ impl SettingsApp {
             });
         });
         ui.add_space(8.0);
-        section_label(ui, "Summary and Explain");
+        section_label(ui, "Summary, Explain and ELI5");
         card(ui, |ui| {
             let before = self.settings.chat_backend;
             row(
@@ -592,7 +592,7 @@ impl SettingsApp {
         let note = match self.settings.chat_backend {
             ChatBackend::Local => format!(
                 "Qwen3 by Alibaba Cloud (Apache 2.0), run with llama.cpp. The model downloads the first time \
-Summary or Explain is used, and is freed after {} minutes unused.",
+Summary, Explain or ELI5 is used, and is freed after {} minutes unused.",
                 llm::IDLE_UNLOAD.as_secs() / 60
             ),
             ChatBackend::Lemonade => self.shared().models_note.clone(),
@@ -625,7 +625,7 @@ Summary or Explain is used, and is freed after {} minutes unused.",
 
     fn lemonade_rows(&mut self, ui: &mut egui::Ui) {
         let models = self.shared().models.clone();
-        row(ui, "Lemonade model", "The model Lemonade uses for summaries and explanations.", |ui| {
+        row(ui, "Lemonade model", "The model Lemonade uses for Summary, Explain and ELI5.", |ui| {
             ui.horizontal(|ui| {
                 if ui.small_button("Refresh").on_hover_text("Ask Lemonade for its models").clicked() {
                     self.refresh_models();

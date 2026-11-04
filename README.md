@@ -167,7 +167,7 @@ Release packages:
 ./packaging/linux/package.sh            # target/linux: the tarball
 ```
 
-To make a release, set the version in `Cargo.toml` and push a `v` tag (for example `v0.2.0`): the **Release** workflow tests and builds all three packages and publishes them. **CI** runs clippy and the tests on Windows, macOS and Linux for every pull request.
+To make a release, set the version in `Cargo.toml` and push a `v` tag (for example `v0.3.0`): the **Release** workflow tests and builds all three packages and publishes them. **CI** runs clippy and the tests on Windows, macOS and Linux for every pull request.
 
 Some checks render images instead of needing a screen: `cargo test -- --ignored` writes the Settings pages, the status pills and an EQ benchmark to `target/`, and `cargo run --example make_icons` regenerates every icon from `assets/logo.png` (with previews in `target/icon-preview`).
 
