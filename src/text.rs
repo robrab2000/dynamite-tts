@@ -149,6 +149,9 @@ Do not say that you are explaining."
     )
 }
 
+/// Room for a short spoken summary from the built-in model (Lemonade sets no limit).
+pub const SUMMARY_MAX_TOKENS: u32 = 384;
+
 /// Room for about `sentences` sentences of explanation.
 pub fn explain_max_tokens(sentences: u32) -> u32 {
     (sentences * 96).max(128)
