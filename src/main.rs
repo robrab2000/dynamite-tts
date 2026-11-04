@@ -30,7 +30,7 @@ Dynamite TTS — highlight-to-speech
 
   dynamite-tts                 start the tray app (or open Settings if it is already running)
   dynamite-tts speak           read the current highlight (what the shortcut runs)
-  dynamite-tts toggle-mode     Verbatim -> Summary -> Explain -> Verbatim
+  dynamite-tts toggle-mode     Verbatim -> Summary -> Explain -> ELI5 -> Verbatim
   dynamite-tts stop | settings | quit | ping
   dynamite-tts --speak TEXT    speak TEXT (starts the app if needed)
   dynamite-tts --version";

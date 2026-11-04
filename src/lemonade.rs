@@ -1,5 +1,5 @@
 //! Client for a local Lemonade server: health, starting `lemond`, model load/pull, and chat
-//! completions for Summary and Explain.
+//! completions for Summary, Explain and ELI5.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -317,9 +317,8 @@ pub fn parse_chat(body: &str) -> Result<String> {
     Ok(content.to_string())
 }
 
-/// Short title for a failed Summary or Explain request.
-pub fn failure_title(message: &str, explain: bool) -> String {
-    let mode = if explain { "Explain" } else { "Summary" };
+/// Short title for a failed request in `mode` (Summary, Explain or ELI5).
+pub fn failure_title(message: &str, mode: &str) -> String {
     let m = message.to_lowercase();
     if [
         "could not reach lemonade",
@@ -378,8 +377,9 @@ mod tests {
 
     #[test]
     fn titles_failures() {
-        assert_eq!(failure_title("Could not reach Lemonade: refused", false), "Lemonade not running");
-        assert_eq!(failure_title("Lemonade is not installed. Run…", true), "Install Lemonade for Explain");
-        assert_eq!(failure_title("boom", false), "Summary failed");
+        assert_eq!(failure_title("Could not reach Lemonade: refused", "Summary"), "Lemonade not running");
+        assert_eq!(failure_title("Lemonade is not installed. Run…", "Explain"), "Install Lemonade for Explain");
+        assert_eq!(failure_title("boom", "Summary"), "Summary failed");
+        assert_eq!(failure_title("boom", "ELI5"), "ELI5 failed");
     }
 }

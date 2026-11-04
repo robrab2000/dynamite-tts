@@ -1,4 +1,4 @@
-//! The speech pipeline: cleanup, optional Summary / Explain through Lemonade's chat model, then
+//! The speech pipeline: cleanup, optional Summary / Explain / ELI5 through Lemonade's chat model, then
 //! Phonon (in-process) streamed into the player.
 //!
 //! Public methods run on the UI thread. Each request runs on a worker thread and reports back
@@ -84,7 +84,7 @@ impl Speech {
         true
     }
 
-    /// Speaks `raw` (with optional surrounding text for Explain) in `mode`.
+    /// Speaks `raw` (with optional surrounding text for Explain and ELI5) in `mode`.
     /// Returns a notice to show when there is nothing to say.
     pub fn speak(
         &mut self,
@@ -175,7 +175,7 @@ impl Worker {
         let s = &self.settings;
         let base = s.base_url.as_str();
         let cancelled = || !self.alive();
-        let chat = matches!(mode, SpeakMode::Summary | SpeakMode::Explain);
+        let chat = mode.uses_chat();
         if chat {
             if !self.client.is_healthy(base) {
                 self.phase("Starting Lemonade…");
@@ -188,8 +188,12 @@ impl Worker {
 
         let mut spoken = text.to_string();
         if chat {
-            let explain = mode == SpeakMode::Explain;
-            self.phase(if explain { "Explaining…" } else { "Summarizing…" });
+            let working = match mode {
+                SpeakMode::Explain => "Explaining…",
+                SpeakMode::Eli5 => "Simplifying…",
+                _ => "Summarizing…",
+            };
+            self.phase(working);
             let model = self.client.pick_chat_model(base, &s.chat_model);
             self.client
                 .ensure_model(base, &model, &|| self.phase("Downloading the chat model (once)…"))
@@ -197,19 +201,27 @@ impl Worker {
             if cancelled() {
                 return Ok(());
             }
-            self.phase(if explain { "Explaining…" } else { "Summarizing…" });
+            self.phase(working);
             let started = std::time::Instant::now();
-            let reply = if explain {
-                let n = s.explain_sentence_count;
-                self.client.chat(
+            let reply = match mode {
+                SpeakMode::Explain => {
+                    let n = s.explain_sentence_count;
+                    self.client.chat(
+                        base,
+                        &model,
+                        &text::explain_prompt(s.explain_audience, n),
+                        &text::explain_user_message(text, context.as_deref()),
+                        Some(text::explain_max_tokens(n)),
+                    )
+                }
+                SpeakMode::Eli5 => self.client.chat(
                     base,
                     &model,
-                    &text::explain_prompt(s.explain_audience, n),
-                    &text::explain_user_message(text, context.as_deref()),
-                    Some(text::explain_max_tokens(n)),
-                )
-            } else {
-                self.client.chat(base, &model, text::SUMMARY_PROMPT, text, None)
+                    text::ELI5_PROMPT,
+                    &text::eli5_user_message(text, context.as_deref()),
+                    Some(text::ELI5_MAX_TOKENS),
+                ),
+                _ => self.client.chat(base, &model, text::SUMMARY_PROMPT, text, None),
             }
             .map_err(|e| self.chat_error(e, mode))?;
             log!(
@@ -221,7 +233,12 @@ impl Worker {
             );
             spoken = text::sanitize(&reply);
             if spoken.is_empty() {
-                return Err(if explain { "The explanation was empty." } else { "The summary was empty." }.into());
+                return Err(if mode == SpeakMode::Summary {
+                    "The summary was empty."
+                } else {
+                    "The explanation was empty."
+                }
+                .into());
             }
         }
         if cancelled() {
@@ -233,11 +250,10 @@ impl Worker {
     }
 
     fn chat_error(&self, e: lemonade::LemonadeError, mode: SpeakMode) -> String {
-        let explain = mode == SpeakMode::Explain;
-        if matches!(mode, SpeakMode::Verbatim) {
+        if !mode.uses_chat() {
             return e.0;
         }
-        format!("{}: {}", lemonade::failure_title(&e.0, explain), e.0)
+        format!("{}: {}", lemonade::failure_title(&e.0, mode.title()), e.0)
     }
 
     /// Opens a player session and a thread that reports "Speaking" and the end of playback.

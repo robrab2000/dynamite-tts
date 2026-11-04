@@ -128,7 +128,9 @@ impl Page {
     fn subtitle(self) -> &'static str {
         match self {
             Page::Voice => "How the highlight is read aloud. Everything runs on this computer.",
-            Page::Modes => "Read the highlight as it is, summarize it, or explain it first.",
+            Page::Modes => {
+                "Read the highlight as it is, summarize it, or explain it first, plainly or like you're five."
+            }
             Page::Shortcuts => "Keys that work from any app.",
             Page::General => "Behaviour, start-up and diagnostics.",
         }
@@ -210,7 +212,10 @@ impl SettingsApp {
                 let note = if ids.is_empty() { "Lemonade has no models yet.".to_string() } else { String::new() };
                 (ids, note)
             } else {
-                (Vec::new(), "Lemonade isn't running. It starts the first time Summary or Explain is used.".into())
+                (
+                    Vec::new(),
+                    "Lemonade isn't running. It starts the first time Summary, Explain or ELI5 is used.".into(),
+                )
             };
             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
             s.models = models;
@@ -562,7 +567,7 @@ impl SettingsApp {
             });
         });
         ui.add_space(8.0);
-        section_label(ui, "Lemonade (Summary and Explain)");
+        section_label(ui, "Lemonade (Summary, Explain and ELI5)");
         card(ui, |ui| {
             let models = self.shared().models.clone();
             row(ui, "Chat model", "The local model that writes summaries and explanations.", |ui| {
@@ -599,7 +604,7 @@ impl SettingsApp {
         card(ui, |ui| {
             self.hotkey_row(ui, "Speak selection", "Reads the highlighted text.", Recording::Speak);
             divider(ui);
-            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary and Explain.", Recording::Mode);
+            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary, Explain and ELI5.", Recording::Mode);
         });
         if !self.hotkey_error.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.hotkey_error);
@@ -954,7 +959,7 @@ mod tests {
                 Page::Voice,
                 &["Voice", "Speed", "Language", "TONE", "Warm", "Low", "High", "Output device", "Model folder"],
             ),
-            (Page::Modes, &["Speak mode", "Verbatim", "Explain", "Chat model", "Server address"]),
+            (Page::Modes, &["Speak mode", "Verbatim", "Explain", "ELI5", "Chat model", "Server address"]),
             (Page::Shortcuts, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),
             (Page::General, &["Start at login", "Stop sound", "Log file"]),
         ];

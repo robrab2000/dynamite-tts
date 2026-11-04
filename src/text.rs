@@ -1,4 +1,4 @@
-//! Text cleanup for spoken delivery, sentence chunking, and the Summary / Explain prompts.
+//! Text cleanup for spoken delivery, sentence chunking, and the Summary / Explain / ELI5 prompts.
 
 use std::sync::LazyLock;
 
@@ -191,6 +191,80 @@ pub fn explain_user_message(selection: &str, surrounding: Option<&str>) -> Strin
     }
 }
 
+pub const ELI5_PROMPT: &str = "You explain highlighted text to a curious five-year-old, for spoken delivery. \
+First read the surrounding paragraphs, when provided, to work out what the highlight means in that passage: \
+what it refers to, what it is doing there, and which sense of any word is meant. \
+Then explain only the highlight, not the whole passage, in that sense. \
+Use short sentences and simple everyday words a young child knows. \
+Leave out jargon; if you must use a hard word, say what it means right away. \
+Use one friendly comparison to something from everyday life, like toys, food, animals or the playground. \
+Aim for about four sentences. \
+Stay true to the passage; do not invent facts that are not supported by it or by common knowledge. \
+Reply with plain prose only. No markdown, bullets, headings, titles, or preamble. \
+Do not mention five-year-olds, children, or that you are simplifying.";
+
+/// Room for about four short sentences.
+pub const ELI5_MAX_TOKENS: u32 = 320;
+
+/// The paragraphs around the selection, at most [`MAX_CONTEXT_CHARS`], for ELI5.
+///
+/// `field` is the whole text the selection came from (on macOS, the focused field). The result
+/// is the paragraph holding the selection plus one on each side; when that is still too long, a
+/// window of it centred on the selection. `None` when the field adds nothing to the selection.
+pub fn surrounding_paragraphs(selection: &str, field: Option<&str>) -> Option<String> {
+    let selection = selection.trim();
+    let field = field?.trim();
+    let Some(start) = (!selection.is_empty()).then(|| field.find(selection)).flatten() else {
+        return normalize_context(selection, Some(field));
+    };
+    let end = start + selection.len();
+    let paragraphs: Vec<(usize, usize)> = line_spans(field).filter(|&(a, b)| !field[a..b].trim().is_empty()).collect();
+    let first = paragraphs.iter().position(|&(_, b)| b > start).unwrap_or(0);
+    let last = paragraphs.iter().rposition(|&(a, _)| a < end).unwrap_or(first).max(first);
+    let from = paragraphs[first.saturating_sub(1)].0;
+    let to = paragraphs[(last + 1).min(paragraphs.len() - 1)].1;
+    let passage = &field[from..to];
+    let (start, end) = (start - from, end - from);
+
+    let total = passage.chars().count();
+    if total <= MAX_CONTEXT_CHARS {
+        return normalize_context(selection, Some(passage));
+    }
+    // Centre a window on the selection, in characters so multi-byte text is never split.
+    let sel_start = passage[..start].chars().count();
+    let sel_len = passage[start..end].chars().count();
+    let spare = MAX_CONTEXT_CHARS.saturating_sub(sel_len);
+    let mut lead = sel_start.min(spare / 2);
+    let trail = (total - sel_start - sel_len).min(spare - lead);
+    lead = sel_start.min(spare - trail);
+    let window: String = passage.chars().skip(sel_start - lead).take(lead + sel_len + trail).collect();
+    let window = window.trim();
+    let before = if sel_start > lead { "…" } else { "" };
+    let after = if sel_start + sel_len + trail < total { "…" } else { "" };
+    normalize_context(selection, Some(&format!("{before}{window}{after}")))
+}
+
+/// Byte ranges of each line, without the line break.
+fn line_spans(text: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut offset = 0;
+    text.split('\n').map(move |line| {
+        let span = (offset, offset + line.len());
+        offset += line.len() + 1;
+        span
+    })
+}
+
+pub fn eli5_user_message(selection: &str, surrounding: Option<&str>) -> String {
+    let trimmed = selection.trim();
+    match surrounding.map(str::trim).filter(|c| !c.is_empty()) {
+        None => format!("Explain this like I'm five:\n{trimmed}"),
+        // Lead with the passage so small models settle the sense before seeing the highlight.
+        Some(context) => format!(
+            "Surrounding paragraphs:\n{context}\n\nUsing those paragraphs to understand what it means there, explain only this highlighted text like I'm five:\n{trimmed}"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +323,46 @@ mod tests {
         assert!(msg.ends_with("\nElectron"));
         let long = "x".repeat(2000);
         assert!(normalize_context("a", Some(&long)).unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn eli5_takes_the_paragraphs_around_the_selection() {
+        let field = "Intro paragraph.\n\nBefore it.\nThe app uses Electron for its UI.\nAfter it.\n\nFar away.";
+        assert_eq!(
+            surrounding_paragraphs("Electron", Some(field)).unwrap(),
+            "Before it.\nThe app uses Electron for its UI.\nAfter it."
+        );
+        // A selection across lines keeps every line it touches plus one on each side.
+        let spans = surrounding_paragraphs("its UI.\nAfter", Some(field)).unwrap();
+        assert_eq!(spans, "Before it.\nThe app uses Electron for its UI.\nAfter it.\n\nFar away.");
+        // Nothing beyond the selection itself, or no field at all.
+        assert_eq!(surrounding_paragraphs("Electron", Some("Electron")), None);
+        assert_eq!(surrounding_paragraphs("Electron", None), None);
+        // Not found (the app trimmed or reflowed it): the field as a whole, as for Explain.
+        assert_eq!(surrounding_paragraphs("Qubit", Some(field)).unwrap(), field);
+    }
+
+    #[test]
+    fn eli5_centres_a_long_passage_on_the_selection() {
+        let field = format!("{} TARGET {}", "é".repeat(3000), "b".repeat(3000));
+        let ctx = surrounding_paragraphs("TARGET", Some(&field)).unwrap();
+        assert!(ctx.starts_with('…') && ctx.ends_with('…'));
+        assert!(ctx.chars().count() <= MAX_CONTEXT_CHARS + 2);
+        let at = ctx.find("TARGET").unwrap();
+        let (lead, trail) = (ctx[..at].chars().count(), ctx[at..].chars().count());
+        assert!(lead.abs_diff(trail) < 20, "{lead} vs {trail}");
+        // Near the start, the spare room goes after the selection.
+        let field = format!("TARGET {}", "b".repeat(3000));
+        let ctx = surrounding_paragraphs("TARGET", Some(&field)).unwrap();
+        assert!(ctx.starts_with("TARGET") && ctx.ends_with('…'));
+    }
+
+    #[test]
+    fn eli5_message_leads_with_the_passage() {
+        assert_eq!(eli5_user_message(" Electron ", None), "Explain this like I'm five:\nElectron");
+        let msg = eli5_user_message("Electron", Some("The app uses Electron."));
+        assert!(msg.starts_with("Surrounding paragraphs:\nThe app uses Electron."));
+        assert!(msg.ends_with("like I'm five:\nElectron"));
     }
 
     #[test]

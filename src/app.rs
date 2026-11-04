@@ -258,9 +258,13 @@ impl App {
                     Some(text) => {
                         let mode = self.settings.speak_mode;
                         self.speaking_mode = mode;
-                        let context = (mode == SpeakMode::Explain && text::is_short_selection(&text))
-                            .then(|| text::normalize_context(&text, capture.context.as_deref()))
-                            .flatten();
+                        let context = match mode {
+                            SpeakMode::Explain if text::is_short_selection(&text) => {
+                                text::normalize_context(&text, capture.context.as_deref())
+                            }
+                            SpeakMode::Eli5 => text::surrounding_paragraphs(&text, capture.context.as_deref()),
+                            _ => None,
+                        };
                         if let Some(n) = self.speech.speak(&text, context, &self.settings, mode) {
                             self.notice(&n);
                         }
@@ -328,7 +332,7 @@ impl App {
             return;
         }
         self.capturing = true;
-        let include_context = self.settings.speak_mode == SpeakMode::Explain;
+        let include_context = self.settings.speak_mode.uses_context();
         let proxy = self.proxy.clone();
         let started = Instant::now();
         std::thread::spawn(move || {

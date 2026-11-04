@@ -2,6 +2,12 @@
 
 The release workflow publishes the section for each tag as that release's notes.
 
+## Unreleased
+
+### New
+
+- **ELI5 mode.** A fourth speak mode, after Explain, that explains the highlight as if to a five-year-old, with simple words and an everyday comparison. On macOS it reads the paragraphs around the highlight to work out what it means there. Like Summary and Explain it uses Lemonade's chat model.
+
 ## v0.2.0
 
 A rewrite: one Rust app for Windows, macOS and Linux, replacing the separate C#, Swift and Python apps.

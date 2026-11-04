@@ -3,7 +3,7 @@
 //! - Windows: a clean synthetic Ctrl+C (held modifiers lifted first), the clipboard read once
 //!   its sequence number changes, and the previous clipboard text or image put back afterwards.
 //! - macOS: the focused element's selected text through Accessibility (with its full value as
-//!   context for Explain), falling back to Cmd+C and the pasteboard.
+//!   context for Explain and ELI5), falling back to Cmd+C and the pasteboard.
 //! - Linux: the PRIMARY selection through wl-paste or xclip/xsel. No keys are sent and the
 //!   clipboard is never touched.
 
@@ -20,7 +20,7 @@ mod clipboard;
 #[derive(Debug, Default)]
 pub struct Capture {
     pub text: Option<String>,
-    /// Text around the selection (the whole field on macOS), for Explain.
+    /// Text around the selection (the whole field on macOS), for Explain and ELI5.
     pub context: Option<String>,
 }
 
