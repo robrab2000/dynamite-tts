@@ -221,9 +221,9 @@ fn outline_wordmark(img: &RgbaImage) -> RgbaImage {
         // The outline sits under the artwork: artwork over halo.
         let a = p.0[3] as f32 / 255.0;
         let out_a = a + halo * (1.0 - a);
-        for c in 0..3 {
-            let v = (p.0[c] as f32 * a + color[c] as f32 * halo * (1.0 - a)) / out_a.max(1e-3);
-            p.0[c] = v.round().min(255.0) as u8;
+        for (channel, &src) in p.0[..3].iter_mut().zip(&color) {
+            let v = (*channel as f32 * a + src as f32 * halo * (1.0 - a)) / out_a.max(1e-3);
+            *channel = v.round().min(255.0) as u8;
         }
         p.0[3] = (out_a * 255.0).round() as u8;
     }
