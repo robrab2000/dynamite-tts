@@ -256,13 +256,32 @@ impl Client {
     }
 
     pub fn chat(&self, base: &str, model: &str, system: &str, user: &str, max_tokens: Option<u32>) -> Result<String> {
-        let mut payload = json!({
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "stream": false,
-        });
+        self.chat_turns(base, model, system, &[], user, max_tokens, None)
+    }
+
+    /// A chat with worked examples: `shots` are (user, assistant) turns sent before `user`.
+    pub fn chat_turns(
+        &self,
+        base: &str,
+        model: &str,
+        system: &str,
+        shots: &[(&str, &str)],
+        user: &str,
+        max_tokens: Option<u32>,
+        temperature: Option<f32>,
+    ) -> Result<String> {
+        let mut messages = vec![json!({"role": "system", "content": system})];
+        for (question, answer) in shots {
+            messages.push(json!({"role": "user", "content": question}));
+            messages.push(json!({"role": "assistant", "content": answer}));
+        }
+        messages.push(json!({"role": "user", "content": user}));
+        let mut payload = json!({"model": model, "messages": messages, "stream": false});
         if let Some(n) = max_tokens.filter(|n| *n > 0) {
             payload["max_tokens"] = json!(n);
+        }
+        if let Some(t) = temperature {
+            payload["temperature"] = json!(t);
         }
         let (status, body) =
             self.post(&format!("{base}/api/v1/chat/completions"), &payload, Duration::from_secs(180))?;

@@ -214,13 +214,22 @@ impl Worker {
                         Some(text::explain_max_tokens(n)),
                     )
                 }
-                SpeakMode::Eli5 => self.client.chat(
-                    base,
-                    &model,
-                    text::ELI5_PROMPT,
-                    &text::eli5_user_message(text, context.as_deref()),
-                    Some(text::ELI5_MAX_TOKENS),
-                ),
+                SpeakMode::Eli5 => {
+                    let meaning = match context.as_deref() {
+                        Some(c) if text::is_short_selection(text) => eli5_meaning(&self.client, base, &model, text, c),
+                        _ => None,
+                    };
+                    if cancelled() {
+                        return Ok(());
+                    }
+                    self.client.chat(
+                        base,
+                        &model,
+                        text::ELI5_PROMPT,
+                        &text::eli5_user_message(text, context.as_deref(), meaning.as_deref()),
+                        Some(text::ELI5_MAX_TOKENS),
+                    )
+                }
                 _ => self.client.chat(base, &model, text::SUMMARY_PROMPT, text, None),
             }
             .map_err(|e| self.chat_error(e, mode))?;
@@ -232,6 +241,9 @@ impl Worker {
                 started.elapsed().as_millis()
             );
             spoken = text::sanitize(&reply);
+            if mode == SpeakMode::Eli5 {
+                spoken = text::first_sentences(&spoken, text::ELI5_MAX_SENTENCES);
+            }
             if spoken.is_empty() {
                 return Err(if mode == SpeakMode::Summary {
                     "The summary was empty."
@@ -343,5 +355,57 @@ impl Worker {
             )
             .map_err(|e| e.0)?;
         self.finish(session, pushed, "Phonon")
+    }
+}
+
+/// ELI5's first step: what the highlight is in the passage. On failure ELI5 goes on without it.
+fn eli5_meaning(client: &lemonade::Client, base: &str, model: &str, selection: &str, context: &str) -> Option<String> {
+    let started = std::time::Instant::now();
+    let reply = client.chat_turns(
+        base,
+        model,
+        text::ELI5_MEANING_PROMPT,
+        &text::ELI5_MEANING_SHOTS,
+        &text::eli5_meaning_message(selection, context),
+        Some(text::ELI5_MEANING_MAX_TOKENS),
+        Some(text::ELI5_MEANING_TEMPERATURE),
+    );
+    let meaning = reply.ok().as_deref().and_then(text::parse_meaning);
+    // Timings only; the log never records what was read.
+    log!("eli5 meaning: {} in {} ms", if meaning.is_some() { "found" } else { "none" }, started.elapsed().as_millis());
+    meaning
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs ELI5 against a local Lemonade with the default chat model and prints each meaning
+    /// and explanation, to check the prompts by ear. Run with
+    /// `cargo test eli5_against_lemonade -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn eli5_against_lemonade() {
+        let (client, base) = (lemonade::Client::new(), Settings::default().base_url);
+        let model = Settings::default().chat_model;
+        let cases = [
+            (
+                "Lemonade",
+                "Lemonade was already running from the earlier install (port 13305) with Llama-3.2-1B-Instruct-GGUF loaded.",
+            ),
+            ("lemonade", "On hot days the kids sold lemonade from a stand at the end of the road."),
+            ("Kafka", "Kafka buffers the events until the workers catch up."),
+            ("Kafka", "Kafka wrote The Metamorphosis, about a man who wakes up as an insect."),
+        ];
+        for (selection, context) in cases {
+            for _ in 0..3 {
+                let meaning = eli5_meaning(&client, &base, &model, selection, context);
+                let message = text::eli5_user_message(selection, Some(context), meaning.as_deref());
+                let reply =
+                    client.chat(&base, &model, text::ELI5_PROMPT, &message, Some(text::ELI5_MAX_TOKENS)).unwrap();
+                let spoken = text::first_sentences(&text::sanitize(&reply), text::ELI5_MAX_SENTENCES);
+                println!("{selection} [{}]\n    {spoken:?}\n", meaning.unwrap_or_default());
+            }
+        }
     }
 }
