@@ -2,9 +2,11 @@
 # Install Dynamite TTS for the current user on Linux (GNOME on Wayland or X11; other desktops
 # with shortcuts bound by hand).
 #
-#   ./install.sh               install system packages (sudo), the app, Lemonade and its chat model
+#   ./install.sh               install system packages (sudo) and the app
 #   ./install.sh --no-apt      skip apt (you installed the packages yourself)
-#   ./install.sh --no-lemonade skip Lemonade (Verbatim mode with Phonon needs none)
+#   ./install.sh --lemonade    also install AMD's Lemonade Server and its chat model. Optional:
+#                              Summary and Explain use a built-in model unless you choose
+#                              Lemonade in Settings → Modes.
 #
 # Run it from an unpacked release tarball (prebuilt binary) or from a checkout
 # (packaging/linux/install.sh builds the binary with cargo). Everything lands under ~/.local.
@@ -15,12 +17,13 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}/dynamite-tts"
 APP="${DATA}/app"
 BIN="${HOME}/.local/bin"
 SKIP_APT=0
-LEMONADE=1
+LEMONADE=0
 for arg in "$@"; do
   case "$arg" in
     --no-apt) SKIP_APT=1 ;;
-    --no-lemonade) LEMONADE=0 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --lemonade) LEMONADE=1 ;;
+    --no-lemonade) LEMONADE=0 ;; # now the default; still accepted
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg"; exit 2 ;;
   esac
 done
@@ -111,7 +114,7 @@ fi
 
 if [[ "${LEMONADE}" == "1" ]]; then
   echo
-  echo "== Lemonade (Summary and Explain) =="
+  echo "== Lemonade (optional; choose it in Settings → Modes) =="
   "${HERE}/install-lemonade.sh"
   LEMONADE_DIR="${DATA}/lemonade"
   if ! curl -sf --max-time 2 "http://127.0.0.1:13305/api/v1/health" >/dev/null; then
@@ -139,7 +142,7 @@ else
   echo "Dynamite TTS did not answer; start it from the app grid or run: dynamite-tts"
 fi
 echo
-echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain."
+echo "Highlight some text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."
 echo "On GNOME the shortcuts were added under Settings > Keyboard > Custom Shortcuts."
 echo "On other desktops bind these two commands yourself:"
 echo "  ${BIN}/dynamite-tts speak"

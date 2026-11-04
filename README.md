@@ -16,12 +16,14 @@ Press **`Ctrl+Shift+M`** to switch modes:
 - **Verbatim** reads the highlight as it is.
 - **Summary** reads a short summary of it.
 - **Explain** explains what the highlight means. On macOS it also sends the text around a short highlight, so "Electron" next to "desktop apps" isn't explained as a particle.
+- **ELI5** explains the highlight as if to a five-year-old: short sentences, everyday words, and one comparison from daily life. On macOS it reads the paragraphs around the highlight first, so it explains what the words mean in that passage.
 
-Summary and Explain use a small chat model running locally in [Lemonade Server](https://lemonade-server.ai). Verbatim needs nothing but the app.
+Summary, Explain and ELI5 use a small chat model that also runs inside the app. It downloads the first time you use one of them; Verbatim needs nothing but the app.
 
 ## Features
 
 - **Fast, local speech.** [Phonon](https://github.com/gradium-ai/xn-ptts) by Gradium (Apache 2.0) runs in-process: the model loads in under 0.1 s, the first audio arrives 15–40 ms after the request, and a paragraph renders about 10× faster than it is spoken. The English model ships with every download.
+- **Summaries and explanations on your machine too.** A small [Qwen3](https://huggingface.co/Qwen/Qwen3-1.7B) model (Apache 2.0) runs in-process with [llama.cpp](https://github.com/ggml-org/llama.cpp), on the GPU on Apple Silicon and the CPU elsewhere. Pick the 1.7B model (1.1 GB download, up to about 1.7 GB of memory while loaded) or the lighter 0.6B one (400 MB, about 1.0 GB). It is freed after 5 minutes unused. [Lemonade Server](https://lemonade-server.ai) is an optional alternative, for AMD Ryzen AI NPUs.
 - **About 100 voices** in English, French, German, Spanish and Portuguese, each downloaded the first time you pick it (about 250 KB). Speed from 0.67× to 1.5×.
 - **Tone control.** A three-band EQ with presets (Flat, Warm, Clear, Bright, Soft) or your own Low / Mid / High settings, for voices that sound dull or shrill. Changes are heard straight away, even mid-sentence, and add no latency.
 - **A status pill you can tune.** A small pill at the top of the screen fades in while the app works: an orange ripple while it thinks, blue bars that follow the voice while it speaks. Click it to stop. Choose Off, Minimal, Standard or Detailed.
@@ -36,7 +38,7 @@ Download the file for your system from the [latest release](https://github.com/r
 ### Windows 10 (1809+) or 11, 64-bit
 
 1. Run **`DynamiteTts-Setup-v….exe`**. If SmartScreen appears, choose **More info → Run anyway**.
-2. Leave **Install Lemonade Server** ticked if you want Summary and Explain (it uses winget), and **Start Dynamite TTS when I sign in** if you like.
+2. Tick **Start Dynamite TTS when I sign in** if you like. **Install Lemonade Server** is optional and off by default; Summary and Explain work without it.
 3. The app starts in the tray. Highlight some text and press `Ctrl+Shift+S`.
 
 It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator rights. The **`win-x64` zip** is a portable copy of the same files; keep the `models` folder next to `DynamiteTts.exe`.
@@ -46,10 +48,10 @@ It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator 
 1. Download **`Install-Dynamite-TTS-macOS-v….zip`** and open it. Safari unzips it for you.
 2. Double-click **Install-Dynamite-TTS.command** in the folder. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return. The **README.txt** next to it has these steps too.
 3. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or open Terminal, type `bash ` with a space, drag the installer into the window, and press Return.
-4. Answer **Y** to install Lemonade Server and its chat model if you want Summary and Explain, or **n** for Verbatim only.
+4. Answer **n** when it offers Lemonade Server, unless you want it for an AMD NPU. Summary and Explain work without it.
 5. When the app opens, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
 
-The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer and README, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open**, and run `install-lemonade.sh` for Summary and Explain.
+The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer and README, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open**, and, only if you want Lemonade, run `install-lemonade.sh` from the zip.
 
 ### Linux (Ubuntu 22.04+ and similar; GNOME on Wayland or X11)
 
@@ -59,7 +61,7 @@ cd DynamiteTts-linux-x64-v*/
 ./install.sh
 ```
 
-The script installs a few system packages with `apt` (GTK 3, AppIndicator, ALSA, wl-clipboard, xclip; it asks for your password once), puts the app in `~/.local/share/dynamite-tts` with a `dynamite-tts` command in `~/.local/bin`, installs Lemonade and its chat model, and starts the tray icon. Options: `--no-apt` if you install the packages yourself, `--no-lemonade` to skip Lemonade.
+The script installs a few system packages with `apt` (GTK 3, AppIndicator, ALSA, wl-clipboard, xclip; it asks for your password once), puts the app in `~/.local/share/dynamite-tts` with a `dynamite-tts` command in `~/.local/bin`, and starts the tray icon. Options: `--no-apt` if you install the packages yourself, `--lemonade` to also install Lemonade Server.
 
 Linux works a little differently, because of how Wayland is designed:
 
@@ -74,7 +76,7 @@ Hardware: x86-64 builds need a CPU with AVX2 (Intel Haswell / AMD Excavator, abo
 | | |
 |---|---|
 | **`Ctrl+Shift+S`** | Read the highlight. Pressed again while speaking, it stops (or, if you turn that off in Settings, reads the new highlight). |
-| **`Ctrl+Shift+M`** | Switch mode: Verbatim → Summary → Explain. |
+| **`Ctrl+Shift+M`** | Switch mode: Verbatim → Summary → Explain → ELI5. |
 | **Status pill** | Click it to stop speaking. |
 | **Tray menu** | Mode, Settings…, Quit. On Windows, double-click the tray icon for Settings. |
 
@@ -89,7 +91,7 @@ Changes are saved as you make them and apply at once.
 </p>
 
 - **Voice:** voice, speed, language, tone (EQ), output device, and the Phonon model folder (leave it on the built-in English model unless you have a Phonon 40M checkpoint for another language). **Test voice** plays a sample.
-- **Modes:** the speak mode, how long explanations are (1–8 sentences) and who they're for (Technical or General), and the Lemonade chat model and address.
+- **Modes:** the speak mode, how long explanations are (1–8 sentences) and who they're for (Technical or General), and the chat model: **Built in** with its model and estimated memory, or **Lemonade** with its model and address.
 - **Shortcuts:** the two shortcuts, and whether the speak shortcut stops speech that is playing.
 - **General:** the status display (with **Preview**), start at login, the stop sound, and the log folder.
 
@@ -121,7 +123,7 @@ The same program is a remote control for the running app (this is what the Linux
 ```bash
 dynamite-tts                 # start the app, or open Settings if it's running
 dynamite-tts speak           # read the highlight
-dynamite-tts toggle-mode     # Verbatim → Summary → Explain
+dynamite-tts toggle-mode     # Verbatim → Summary → Explain → ELI5
 dynamite-tts stop | settings | ping | quit
 dynamite-tts --speak "Hello" # read some text
 ```
@@ -131,28 +133,30 @@ dynamite-tts --speak "Hello" # read some text
 | | Windows | macOS | Linux |
 |---|---|---|---|
 | Settings | `%AppData%\DynamiteTts\settings.json` | `~/Library/Application Support/DynamiteTTS/settings.json` | `~/.config/dynamite-tts/settings.json` |
-| Models, voices, Lemonade | `%LocalAppData%\DynamiteTts` | `~/Library/Application Support/DynamiteTTS` | `~/.local/share/dynamite-tts` |
+| Models (`models/chat` for the chat model), voices, Lemonade | `%LocalAppData%\DynamiteTts` | `~/Library/Application Support/DynamiteTTS` | `~/.local/share/dynamite-tts` |
 | Log | `%LocalAppData%\DynamiteTts\logs\dynamite.log` | `~/Library/Logs/DynamiteTTS/dynamite.log` | `~/.local/state/dynamite-tts/dynamite.log` |
 
-Nothing you highlight is sent over the network or written to disk. The only downloads are the Phonon model (if it didn't come with the app), voices you choose, and, if you use them, Lemonade's chat model. Downloads come from Hugging Face, pinned to fixed versions, and the model files are checked against SHA-256 hashes.
+Nothing you highlight is sent over the network or written to disk. The only downloads are the Phonon model (if it didn't come with the app), voices you choose, the chat model the first time you use Summary or Explain, and, if you use it, Lemonade's. Downloads come from Hugging Face, pinned to fixed versions, and the model files are checked against SHA-256 hashes.
 
 ## Troubleshooting
 
 - **Nothing happens when I press the shortcut.** Another app may own the same keys; Dynamite says so when it starts. Pick another shortcut in Settings → Shortcuts. On Linux outside GNOME, bind `dynamite-tts speak` in your desktop's keyboard settings.
 - **"No text selected" on macOS.** Allow Dynamite TTS under System Settings → Privacy & Security → Accessibility, then quit and reopen it.
 - **"No text selected" on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11).
-- **Summary or Explain says Lemonade isn't running.** Install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
+- **Summary, Explain or ELI5 is slow or fails with "Not enough memory".** Choose the Qwen3 0.6B model in Settings → Modes. The first request after starting the app also loads the model, which takes a few seconds.
+- **Summary, Explain or ELI5 says Lemonade isn't running.** This only applies when Settings → Modes → Chat model is set to Lemonade. Switch it to Built in, or install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.
 - **Something else.** The log (see above) records what the app did, without the text it read. Settings → General → Open folder takes you there.
 
 ## Building from source
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup on each system, the checks CI runs, and the project's rules.
 
-You need [Rust](https://rustup.rs) 1.89 or newer. On Linux, also `pkg-config libgtk-3-dev libasound2-dev`.
+You need [Rust](https://rustup.rs) 1.89 or newer, CMake and a C++ compiler (llama.cpp is built from source). On Linux, also `pkg-config libgtk-3-dev libasound2-dev cmake libclang-dev`.
 
 ```bash
 cargo run --release     # build and run the app
 cargo test              # unit tests; no sound card or display needed
+cargo build --no-default-features   # skip llama.cpp (Summary and Explain then need Lemonade)
 ```
 
 Release packages:
@@ -163,7 +167,7 @@ Release packages:
 ./packaging/linux/package.sh            # target/linux: the tarball
 ```
 
-To make a release, set the version in `Cargo.toml` and push a `v` tag (for example `v0.2.0`): the **Release** workflow tests and builds all three packages and publishes them. **CI** runs clippy and the tests on Windows, macOS and Linux for every pull request.
+To make a release, set the version in `Cargo.toml` and push a `v` tag (for example `v0.3.0`): the **Release** workflow tests and builds all three packages and publishes them. **CI** runs clippy and the tests on Windows, macOS and Linux for every pull request.
 
 Some checks render images instead of needing a screen: `cargo test -- --ignored` writes the Settings pages, the status pills and an EQ benchmark to `target/`, and `cargo run --example make_icons` regenerates every icon from `assets/logo.png` (with previews in `target/icon-preview`).
 
@@ -174,12 +178,14 @@ Some checks render images instead of needing a screen: `cargo test -- --ignored`
 src/
 ├── main.rs          command line: start the app, or send a command to the running one
 ├── app.rs           event loop (tao): tray, shortcuts, status pill, control commands
-├── speech.rs        sanitize → Summary/Explain → Phonon → player; newer requests cancel older ones
+├── speech.rs        sanitize → Summary/Explain/ELI5 → Phonon → player; newer requests cancel older ones
+├── llm.rs           the built-in chat model (llama.cpp): pinned Qwen3 downloads, prompts, idle unload
 ├── phonon.rs        in-process Phonon (ptts): pinned, hash-checked model download, voices, speed
 ├── voices.rs        the Phonon voice catalogue (assets/phonon-voices.jsonl)
 ├── audio.rs         playback (cpal): resampling, back-pressure, live level, stop chime, devices
 ├── eq.rs            the three-band tone control
-├── lemonade.rs      Lemonade client: health, starting the server, model load/pull, chat
+├── lemonade.rs      Lemonade client (optional backend): health, starting the server, model load/pull, chat
+├── download.rs      pinned, hash-checked downloads shared by the Phonon and chat models
 ├── selection/       reading the highlight: Ctrl+C on Windows, Accessibility/Cmd+C on macOS, primary selection on Linux
 ├── status.rs        the status pill (Windows, macOS) and notifications (Linux)
 ├── tray.rs          tray icon and menu
@@ -189,7 +195,7 @@ src/
 ├── gnome.rs         GNOME custom shortcuts
 ├── control.rs       single-instance lock and the local control socket / named pipe
 ├── autostart.rs     start at login: Run key, LaunchAgent, XDG autostart
-├── text.rs          Markdown and URL cleanup, chunking, Summary/Explain prompts
+├── text.rs          Markdown and URL cleanup, chunking, Summary/Explain/ELI5 prompts
 └── applog.rs, paths.rs
 examples/make_icons.rs   regenerates the icons from the logo
 packaging/               Windows installer, macOS app bundle, Linux tarball and scripts
@@ -200,4 +206,4 @@ docs/                    images and engine measurements
 
 ## Credits and license
 
-Dynamite TTS is MIT-licensed (see [LICENSE](LICENSE)). It speaks with [Phonon](https://github.com/gradium-ai/xn-ptts) by Gradium (the runtime and the bundled 31M English model are Apache 2.0; the 40M multilingual checkpoints are CC BY-NC and not bundled), and uses [Lemonade Server](https://lemonade-server.ai) by AMD for Summary and Explain.
+Dynamite TTS is MIT-licensed (see [LICENSE](LICENSE)). It speaks with [Phonon](https://github.com/gradium-ai/xn-ptts) by Gradium (the runtime and the bundled 31M English model are Apache 2.0; the 40M multilingual checkpoints are CC BY-NC and not bundled), and writes summaries and explanations with [Qwen3](https://huggingface.co/Qwen/Qwen3-1.7B) by Alibaba Cloud (Apache 2.0; the 4-bit GGUF files are [Unsloth](https://huggingface.co/unsloth)'s) run by [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT), or optionally [Lemonade Server](https://lemonade-server.ai) by AMD.

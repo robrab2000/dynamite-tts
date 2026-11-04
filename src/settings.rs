@@ -18,16 +18,18 @@ pub enum SpeakMode {
     Verbatim,
     Summary,
     Explain,
+    Eli5,
 }
 
 impl SpeakMode {
-    pub const ALL: [SpeakMode; 3] = [SpeakMode::Verbatim, SpeakMode::Summary, SpeakMode::Explain];
+    pub const ALL: [SpeakMode; 4] = [SpeakMode::Verbatim, SpeakMode::Summary, SpeakMode::Explain, SpeakMode::Eli5];
 
     pub fn title(self) -> &'static str {
         match self {
             SpeakMode::Verbatim => "Verbatim",
             SpeakMode::Summary => "Summary",
             SpeakMode::Explain => "Explain",
+            SpeakMode::Eli5 => "ELI5",
         }
     }
 
@@ -35,7 +37,8 @@ impl SpeakMode {
         match self {
             SpeakMode::Verbatim => SpeakMode::Summary,
             SpeakMode::Summary => SpeakMode::Explain,
-            SpeakMode::Explain => SpeakMode::Verbatim,
+            SpeakMode::Explain => SpeakMode::Eli5,
+            SpeakMode::Eli5 => SpeakMode::Verbatim,
         }
     }
 
@@ -44,7 +47,18 @@ impl SpeakMode {
             SpeakMode::Verbatim => "verbatim",
             SpeakMode::Summary => "summary",
             SpeakMode::Explain => "explain",
+            SpeakMode::Eli5 => "eli5",
         }
+    }
+
+    /// Summary, Explain and ELI5 go through the chat model (built in, or Lemonade).
+    pub fn uses_chat(self) -> bool {
+        self != SpeakMode::Verbatim
+    }
+
+    /// Explain and ELI5 read the text around the highlight to settle what it means.
+    pub fn uses_context(self) -> bool {
+        matches!(self, SpeakMode::Explain | SpeakMode::Eli5)
     }
 
     fn parse(s: &str) -> Option<Self> {
@@ -72,6 +86,36 @@ impl ExplainAudience {
         match s.trim().to_ascii_lowercase().as_str() {
             "technical" => Some(Self::Technical),
             "general" => Some(Self::General),
+            _ => None,
+        }
+    }
+}
+
+/// Where Summary and Explain get their replies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatBackend {
+    /// llama.cpp inside the app (`llm.rs`).
+    #[default]
+    Local,
+    /// AMD's Lemonade Server (`lemonade.rs`), for its Ryzen AI NPU support.
+    Lemonade,
+}
+
+impl ChatBackend {
+    pub const ALL: [ChatBackend; 2] = [ChatBackend::Local, ChatBackend::Lemonade];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            ChatBackend::Local => "Built in",
+            ChatBackend::Lemonade => "Lemonade",
+        }
+    }
+
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "local" | "builtin" | "built-in" | "built in" | "llama" | "llama.cpp" => Some(Self::Local),
+            "lemonade" => Some(Self::Lemonade),
             _ => None,
         }
     }
@@ -189,6 +233,10 @@ pub struct Settings {
     pub hotkey_stops_speech: bool,
     pub explain_sentence_count: u32,
     pub explain_audience: ExplainAudience,
+    pub chat_backend: ChatBackend,
+    /// The built-in model (an `llm::CHAT_MODELS` id).
+    pub local_model: String,
+    /// The Lemonade model name.
     pub chat_model: String,
 }
 
@@ -214,6 +262,8 @@ impl Default for Settings {
             hotkey_stops_speech: true,
             explain_sentence_count: 3,
             explain_audience: ExplainAudience::Technical,
+            chat_backend: ChatBackend::Local,
+            local_model: crate::llm::DEFAULT_MODEL_ID.into(),
             chat_model: DEFAULT_CHAT_MODEL.into(),
         }
     }
@@ -347,6 +397,12 @@ impl Settings {
         if let Some(a) = f.string(&["explain_audience"]).and_then(|v| ExplainAudience::parse(&v)) {
             s.explain_audience = a;
         }
+        if let Some(b) = f.string(&["chat_backend", "backend"]).and_then(|v| ChatBackend::parse(&v)) {
+            s.chat_backend = b;
+        }
+        if let Some(v) = f.string(&["local_model", "local_chat_model"]) {
+            s.local_model = v;
+        }
         if let Some(v) = f.string(&["chat_model", "SummaryModel"]).filter(|v| !v.trim().is_empty()) {
             s.chat_model = v;
         }
@@ -380,6 +436,7 @@ impl Settings {
             "" => DEFAULT_BASE_URL.into(),
             u => u.into(),
         };
+        self.local_model = crate::llm::find_model(&self.local_model).id.into();
         self.chat_model = match self.chat_model.trim() {
             "" => DEFAULT_CHAT_MODEL.into(),
             v => v.into(),
@@ -468,6 +525,23 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_chat_backend() {
+        assert_eq!(Settings::from_json(&json!({})).chat_backend, ChatBackend::Local);
+        assert_eq!(Settings::from_json(&json!({"chat_backend": "LEMONADE"})).chat_backend, ChatBackend::Lemonade);
+        assert_eq!(Settings::from_json(&json!({"chatBackend": "built-in"})).chat_backend, ChatBackend::Local);
+        assert_eq!(Settings::from_json(&json!({"chat_backend": "nonsense"})).chat_backend, ChatBackend::Local);
+        // A 0.2.0 file with a Lemonade model and no backend moves to the built-in model.
+        let old = Settings::from_json(&json!({"chat_model": "Qwen2.5-0.5B-Instruct"}));
+        assert_eq!((old.chat_backend, old.chat_model.as_str()), (ChatBackend::Local, "Qwen2.5-0.5B-Instruct"));
+    }
+
+    #[test]
+    fn local_model_snaps_to_a_known_one() {
+        assert_eq!(Settings::from_json(&json!({"local_model": "Qwen3-0.6B"})).local_model, "qwen3-0.6b");
+        assert_eq!(Settings::from_json(&json!({"local_model": "nope"})).local_model, crate::llm::DEFAULT_MODEL_ID);
+    }
+
+    #[test]
     fn values_are_clamped() {
         let s = Settings::from_json(&json!({
             "speed": 9.0, "explain_sentence_count": 0, "phonon_language": " FR ",
@@ -548,6 +622,7 @@ mod tests {
     fn modes_cycle() {
         assert_eq!(SpeakMode::Verbatim.next(), SpeakMode::Summary);
         assert_eq!(SpeakMode::Summary.next(), SpeakMode::Explain);
-        assert_eq!(SpeakMode::Explain.next(), SpeakMode::Verbatim);
+        assert_eq!(SpeakMode::Explain.next(), SpeakMode::Eli5);
+        assert_eq!(SpeakMode::Eli5.next(), SpeakMode::Verbatim);
     }
 }

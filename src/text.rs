@@ -1,4 +1,4 @@
-//! Text cleanup for spoken delivery, sentence chunking, and the Summary / Explain prompts.
+//! Text cleanup for spoken delivery, sentence chunking, and the Summary / Explain / ELI5 prompts.
 
 use std::sync::LazyLock;
 
@@ -149,6 +149,9 @@ Do not say that you are explaining."
     )
 }
 
+/// Room for a short spoken summary from the built-in model (Lemonade sets no limit).
+pub const SUMMARY_MAX_TOKENS: u32 = 384;
+
 /// Room for about `sentences` sentences of explanation.
 pub fn explain_max_tokens(sentences: u32) -> u32 {
     (sentences * 96).max(128)
@@ -187,6 +190,130 @@ pub fn explain_user_message(selection: &str, surrounding: Option<&str>) -> Strin
         // Lead with the passage so small models settle the sense before seeing the bare term.
         Some(context) => format!(
             "Surrounding text:\n{context}\n\nWithin that text, explain only this highlighted word or phrase (not the whole passage):\n{trimmed}"
+        ),
+    }
+}
+
+/// ELI5 runs in two steps when there is surrounding text. A small model asked to explain a
+/// word that has a common everyday sense ("Lemonade") explains that sense even when the passage
+/// says otherwise, so the first step only works out what the highlight is in the passage, and
+/// the second explains that meaning. Worked examples steer a small model far better than rules.
+pub const ELI5_MEANING_PROMPT: &str = "You work out what a highlighted word or phrase is in a passage. \
+Everyday words are often names of apps, programs, servers, products or companies, so look at the other words in the passage. \
+Reply in two lines: CLUES lists words copied from the passage that say what the highlight does, has or is part of; \
+MEANING says what the highlight is in this passage, in a few plain words.";
+
+/// (passage message, reply) pairs sent before the real passage.
+pub const ELI5_MEANING_SHOTS: [(&str, &str); 3] = [
+    (
+        "Passage:\nPost the build link in Slack so the whole team sees it before the release.\n\nHighlighted: Slack",
+        "CLUES: post, link, team, release\nMEANING: a chat app that work teams use to send messages",
+    ),
+    (
+        "Passage:\nApache was still listening on port 8080 after the update, with the old config loaded.\n\nHighlighted: Apache",
+        "CLUES: listening, port 8080, update, config loaded\nMEANING: a web server program on a computer",
+    ),
+    (
+        "Passage:\nThe jaguar slept high in the tree after a long night of hunting.\n\nHighlighted: jaguar",
+        "CLUES: slept, tree, hunting\nMEANING: a big wild cat",
+    ),
+];
+
+/// Low, so the same passage settles on the same meaning each time.
+pub const ELI5_MEANING_TEMPERATURE: f32 = 0.2;
+pub const ELI5_MEANING_MAX_TOKENS: u32 = 60;
+
+pub fn eli5_meaning_message(selection: &str, surrounding: &str) -> String {
+    format!("Passage:\n{}\n\nHighlighted: {}", surrounding.trim(), selection.trim())
+}
+
+/// The MEANING line of the first step's reply, when it gave a usable one.
+pub fn parse_meaning(reply: &str) -> Option<String> {
+    let line = reply.lines().find_map(|l| l.trim().strip_prefix("MEANING:"))?;
+    let meaning = line.trim().trim_matches(|c: char| c == '"' || c == '\'' || c == '.' || c.is_whitespace());
+    (!meaning.is_empty() && meaning.chars().count() <= 120).then(|| meaning.to_string())
+}
+
+pub const ELI5_PROMPT: &str = "You explain things to a curious five-year-old, for spoken delivery. \
+You are told what the highlighted word or phrase means in its passage; explain that meaning and no other, \
+even if the word has a more common everyday meaning. \
+Use about four short sentences with simple everyday words. \
+Leave out jargon; if you must use a hard word, say what it means right away. \
+Its name may also be an everyday word; if so, do not mention that everyday thing at all, not even in a comparison. \
+You may use one comparison to something from everyday life to show what it does. \
+Explain only the highlight, not the whole passage. \
+Reply with plain prose only. No markdown, bullets, headings, titles, or preamble. \
+Do not mention five-year-olds, children, or that you are simplifying.";
+
+/// Room for about four short sentences.
+pub const ELI5_MAX_TOKENS: u32 = 320;
+/// Small models often run on; ELI5 speaks at most this many sentences.
+pub const ELI5_MAX_SENTENCES: usize = 4;
+
+/// The first `n` sentences of `text`, joined with spaces.
+pub fn first_sentences(text: &str, n: usize) -> String {
+    let parts: Vec<&str> = sentences(text.trim()).into_iter().map(str::trim).filter(|s| !s.is_empty()).collect();
+    parts.into_iter().take(n).collect::<Vec<_>>().join(" ")
+}
+
+/// The paragraphs around the selection, at most [`MAX_CONTEXT_CHARS`], for ELI5.
+///
+/// `field` is the whole text the selection came from (on macOS, the focused field). The result
+/// is the paragraph holding the selection plus one on each side; when that is still too long, a
+/// window of it centred on the selection. `None` when the field adds nothing to the selection.
+pub fn surrounding_paragraphs(selection: &str, field: Option<&str>) -> Option<String> {
+    let selection = selection.trim();
+    let field = field?.trim();
+    let Some(start) = (!selection.is_empty()).then(|| field.find(selection)).flatten() else {
+        return normalize_context(selection, Some(field));
+    };
+    let end = start + selection.len();
+    let paragraphs: Vec<(usize, usize)> = line_spans(field).filter(|&(a, b)| !field[a..b].trim().is_empty()).collect();
+    let first = paragraphs.iter().position(|&(_, b)| b > start).unwrap_or(0);
+    let last = paragraphs.iter().rposition(|&(a, _)| a < end).unwrap_or(first).max(first);
+    let from = paragraphs[first.saturating_sub(1)].0;
+    let to = paragraphs[(last + 1).min(paragraphs.len() - 1)].1;
+    let passage = &field[from..to];
+    let (start, end) = (start - from, end - from);
+
+    let total = passage.chars().count();
+    if total <= MAX_CONTEXT_CHARS {
+        return normalize_context(selection, Some(passage));
+    }
+    // Centre a window on the selection, in characters so multi-byte text is never split.
+    let sel_start = passage[..start].chars().count();
+    let sel_len = passage[start..end].chars().count();
+    let spare = MAX_CONTEXT_CHARS.saturating_sub(sel_len);
+    let mut lead = sel_start.min(spare / 2);
+    let trail = (total - sel_start - sel_len).min(spare - lead);
+    lead = sel_start.min(spare - trail);
+    let window: String = passage.chars().skip(sel_start - lead).take(lead + sel_len + trail).collect();
+    let window = window.trim();
+    let before = if sel_start > lead { "…" } else { "" };
+    let after = if sel_start + sel_len + trail < total { "…" } else { "" };
+    normalize_context(selection, Some(&format!("{before}{window}{after}")))
+}
+
+/// Byte ranges of each line, without the line break.
+fn line_spans(text: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut offset = 0;
+    text.split('\n').map(move |line| {
+        let span = (offset, offset + line.len());
+        offset += line.len() + 1;
+        span
+    })
+}
+
+/// The explanation request. With a `meaning` from the first step the reply has to open by
+/// stating it, which keeps a small model from drifting back to the everyday sense.
+pub fn eli5_user_message(selection: &str, surrounding: Option<&str>, meaning: Option<&str>) -> String {
+    let sel = selection.trim();
+    match (surrounding.map(str::trim).filter(|c| !c.is_empty()), meaning) {
+        (None, _) => format!("Explain this: {sel}"),
+        (Some(context), None) => format!("Passage:\n{context}\n\nHighlighted: {sel}\n\nExplain what {sel} is here."),
+        (Some(context), Some(meaning)) => format!(
+            "Passage:\n{context}\n\nHighlighted: {sel}\nIn this passage, {sel} is {meaning}.\n\n\
+Explain {sel}, {meaning}. Begin with exactly: \"{sel} is {meaning}.\" Then keep explaining that."
         ),
     }
 }
@@ -249,6 +376,72 @@ mod tests {
         assert!(msg.ends_with("\nElectron"));
         let long = "x".repeat(2000);
         assert!(normalize_context("a", Some(&long)).unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn eli5_takes_the_paragraphs_around_the_selection() {
+        let field = "Intro paragraph.\n\nBefore it.\nThe app uses Electron for its UI.\nAfter it.\n\nFar away.";
+        assert_eq!(
+            surrounding_paragraphs("Electron", Some(field)).unwrap(),
+            "Before it.\nThe app uses Electron for its UI.\nAfter it."
+        );
+        // A selection across lines keeps every line it touches plus one on each side.
+        let spans = surrounding_paragraphs("its UI.\nAfter", Some(field)).unwrap();
+        assert_eq!(spans, "Before it.\nThe app uses Electron for its UI.\nAfter it.\n\nFar away.");
+        // Nothing beyond the selection itself, or no field at all.
+        assert_eq!(surrounding_paragraphs("Electron", Some("Electron")), None);
+        assert_eq!(surrounding_paragraphs("Electron", None), None);
+        // Not found (the app trimmed or reflowed it): the field as a whole, as for Explain.
+        assert_eq!(surrounding_paragraphs("Qubit", Some(field)).unwrap(), field);
+    }
+
+    #[test]
+    fn eli5_centres_a_long_passage_on_the_selection() {
+        let field = format!("{} TARGET {}", "é".repeat(3000), "b".repeat(3000));
+        let ctx = surrounding_paragraphs("TARGET", Some(&field)).unwrap();
+        assert!(ctx.starts_with('…') && ctx.ends_with('…'));
+        assert!(ctx.chars().count() <= MAX_CONTEXT_CHARS + 2);
+        let at = ctx.find("TARGET").unwrap();
+        let (lead, trail) = (ctx[..at].chars().count(), ctx[at..].chars().count());
+        assert!(lead.abs_diff(trail) < 20, "{lead} vs {trail}");
+        // Near the start, the spare room goes after the selection.
+        let field = format!("TARGET {}", "b".repeat(3000));
+        let ctx = surrounding_paragraphs("TARGET", Some(&field)).unwrap();
+        assert!(ctx.starts_with("TARGET") && ctx.ends_with('…'));
+    }
+
+    #[test]
+    fn eli5_message_leads_with_the_passage() {
+        assert_eq!(eli5_user_message(" Electron ", None, None), "Explain this: Electron");
+        let msg = eli5_user_message("Electron", Some("The app uses Electron."), None);
+        assert!(msg.starts_with("Passage:\nThe app uses Electron.\n\nHighlighted: Electron"));
+        let msg =
+            eli5_user_message("Lemonade", Some("Lemonade was running on port 13305."), Some("a computer program"));
+        assert!(msg.contains("In this passage, Lemonade is a computer program."));
+        assert!(msg.ends_with("Begin with exactly: \"Lemonade is a computer program.\" Then keep explaining that."));
+    }
+
+    #[test]
+    fn keeps_the_first_sentences() {
+        assert_eq!(first_sentences("One. Two!\nThree? Four. Five.", 4), "One. Two! Three? Four.");
+        assert_eq!(first_sentences("  Just one  ", 4), "Just one");
+        assert_eq!(first_sentences("", 4), "");
+    }
+
+    #[test]
+    fn eli5_reads_the_meaning_line() {
+        assert_eq!(
+            parse_meaning("CLUES: running, install, port\nMEANING: a program that runs on a computer."),
+            Some("a program that runs on a computer".into())
+        );
+        assert_eq!(parse_meaning("MEANING: \"a big wild cat\""), Some("a big wild cat".into()));
+        assert_eq!(parse_meaning("Lemonade is a drink."), None);
+        assert_eq!(parse_meaning("MEANING:   "), None);
+        assert_eq!(parse_meaning(&format!("MEANING: {}", "x".repeat(200))), None);
+        assert_eq!(
+            eli5_meaning_message(" Lemonade ", " It runs on port 13305. "),
+            "Passage:\nIt runs on port 13305.\n\nHighlighted: Lemonade"
+        );
     }
 
     #[test]

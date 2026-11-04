@@ -1,5 +1,5 @@
 //! Client for a local Lemonade server: health, starting `lemond`, model load/pull, and chat
-//! completions for Summary and Explain.
+//! completions for Summary, Explain and ELI5.
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -255,14 +255,29 @@ impl Client {
         pick_chat_model(&self.list_models(base), preferred)
     }
 
-    pub fn chat(&self, base: &str, model: &str, system: &str, user: &str, max_tokens: Option<u32>) -> Result<String> {
-        let mut payload = json!({
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "stream": false,
-        });
+    /// A chat with worked examples: `shots` are (user, assistant) turns sent before `user`.
+    pub fn chat_turns(
+        &self,
+        base: &str,
+        model: &str,
+        system: &str,
+        shots: &[(&str, &str)],
+        user: &str,
+        max_tokens: Option<u32>,
+        temperature: Option<f32>,
+    ) -> Result<String> {
+        let mut messages = vec![json!({"role": "system", "content": system})];
+        for (question, answer) in shots {
+            messages.push(json!({"role": "user", "content": question}));
+            messages.push(json!({"role": "assistant", "content": answer}));
+        }
+        messages.push(json!({"role": "user", "content": user}));
+        let mut payload = json!({"model": model, "messages": messages, "stream": false});
         if let Some(n) = max_tokens.filter(|n| *n > 0) {
             payload["max_tokens"] = json!(n);
+        }
+        if let Some(t) = temperature {
+            payload["temperature"] = json!(t);
         }
         let (status, body) =
             self.post(&format!("{base}/api/v1/chat/completions"), &payload, Duration::from_secs(180))?;
@@ -317,9 +332,8 @@ pub fn parse_chat(body: &str) -> Result<String> {
     Ok(content.to_string())
 }
 
-/// Short title for a failed Summary or Explain request.
-pub fn failure_title(message: &str, explain: bool) -> String {
-    let mode = if explain { "Explain" } else { "Summary" };
+/// Short title for a failed request in `mode` (Summary, Explain or ELI5).
+pub fn failure_title(message: &str, mode: &str) -> String {
     let m = message.to_lowercase();
     if [
         "could not reach lemonade",
@@ -378,8 +392,9 @@ mod tests {
 
     #[test]
     fn titles_failures() {
-        assert_eq!(failure_title("Could not reach Lemonade: refused", false), "Lemonade not running");
-        assert_eq!(failure_title("Lemonade is not installed. Run…", true), "Install Lemonade for Explain");
-        assert_eq!(failure_title("boom", false), "Summary failed");
+        assert_eq!(failure_title("Could not reach Lemonade: refused", "Summary"), "Lemonade not running");
+        assert_eq!(failure_title("Lemonade is not installed. Run…", "Explain"), "Install Lemonade for Explain");
+        assert_eq!(failure_title("boom", "Summary"), "Summary failed");
+        assert_eq!(failure_title("boom", "ELI5"), "ELI5 failed");
     }
 }

@@ -9,8 +9,10 @@ use std::time::{Duration, Instant, SystemTime};
 use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Stroke, Vec2};
 
 use crate::hotkey::{Hotkey, canonical_key};
-use crate::settings::{EqPreset, ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, StatusStyle, Store};
-use crate::{audio, autostart, control, lemonade, paths, voices};
+use crate::settings::{
+    ChatBackend, EqPreset, ExplainAudience, PHONON_LANGUAGES, Settings, SpeakMode, StatusStyle, Store,
+};
+use crate::{audio, autostart, control, lemonade, llm, paths, voices};
 
 const SAMPLE: &str = "Hello! This is how Dynamite TTS sounds with these settings.";
 
@@ -128,7 +130,9 @@ impl Page {
     fn subtitle(self) -> &'static str {
         match self {
             Page::Voice => "How the highlight is read aloud. Everything runs on this computer.",
-            Page::Modes => "Read the highlight as it is, summarize it, or explain it first.",
+            Page::Modes => {
+                "Read the highlight as it is, summarize it, or explain it first, plainly or like you're five."
+            }
             Page::Shortcuts => "Keys that work from any app.",
             Page::General => "Behaviour, start-up and diagnostics.",
         }
@@ -191,7 +195,9 @@ impl SettingsApp {
             eq_sent_at: Instant::now(),
             icon: None,
         };
-        app.refresh_models();
+        if app.settings.chat_backend == ChatBackend::Lemonade {
+            app.refresh_models();
+        }
         app
     }
 
@@ -210,7 +216,10 @@ impl SettingsApp {
                 let note = if ids.is_empty() { "Lemonade has no models yet.".to_string() } else { String::new() };
                 (ids, note)
             } else {
-                (Vec::new(), "Lemonade isn't running. It starts the first time Summary or Explain is used.".into())
+                (
+                    Vec::new(),
+                    "Lemonade isn't running. It starts the first time Summary, Explain or ELI5 is used.".into(),
+                )
             };
             let mut s = shared.lock().unwrap_or_else(|e| e.into_inner());
             s.models = models;
@@ -562,44 +571,90 @@ impl SettingsApp {
             });
         });
         ui.add_space(8.0);
-        section_label(ui, "Lemonade (Summary and Explain)");
+        section_label(ui, "Summary, Explain and ELI5");
         card(ui, |ui| {
-            let models = self.shared().models.clone();
-            row(ui, "Chat model", "The local model that writes summaries and explanations.", |ui| {
-                ui.horizontal(|ui| {
-                    if ui.small_button("Refresh").on_hover_text("Ask Lemonade for its models").clicked() {
-                        self.refresh_models();
-                    }
-                    egui::ComboBox::from_id_salt("chat")
-                        .width(CONTROL_WIDTH - 40.0)
-                        .selected_text(self.settings.chat_model.clone())
-                        .show_ui(ui, |ui| {
-                            if !models.iter().any(|m| m.eq_ignore_ascii_case(&self.settings.chat_model)) {
-                                let current = self.settings.chat_model.clone();
-                                ui.selectable_value(&mut self.settings.chat_model, current.clone(), current);
-                            }
-                            for m in &models {
-                                ui.selectable_value(&mut self.settings.chat_model, m.clone(), m);
-                            }
-                        });
-                });
-            });
+            let before = self.settings.chat_backend;
+            row(
+                ui,
+                "Chat model",
+                "Built in runs a small model inside the app. Lemonade uses AMD's server, for Ryzen AI NPUs.",
+                |ui| segmented(ui, &mut self.settings.chat_backend, &ChatBackend::ALL.map(|b| (b, b.title()))),
+            );
+            if before != self.settings.chat_backend && self.settings.chat_backend == ChatBackend::Lemonade {
+                self.refresh_models();
+            }
             divider(ui);
-            row(ui, "Server address", "Where Lemonade listens.", |ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.settings.base_url).desired_width(CONTROL_WIDTH));
+            match self.settings.chat_backend {
+                ChatBackend::Local => self.local_model_row(ui),
+                ChatBackend::Lemonade => self.lemonade_rows(ui),
+            }
+        });
+        let note = match self.settings.chat_backend {
+            ChatBackend::Local => format!(
+                "Qwen3 by Alibaba Cloud (Apache 2.0), run with llama.cpp. The model downloads the first time \
+Summary, Explain or ELI5 is used, and is freed after {} minutes unused.",
+                llm::IDLE_UNLOAD.as_secs() / 60
+            ),
+            ChatBackend::Lemonade => self.shared().models_note.clone(),
+        };
+        if !note.is_empty() {
+            ui.add(egui::Label::new(RichText::new(note).small().weak()).wrap());
+        }
+    }
+
+    fn local_model_row(&mut self, ui: &mut egui::Ui) {
+        let current = llm::find_model(&self.settings.local_model);
+        let hint = format!(
+            "{} {} download{}. Up to {} of memory while loaded.",
+            current.note,
+            llm::size_label(current.file.size),
+            if llm::is_downloaded(current) { ", done" } else { "" },
+            llm::size_label(current.memory_estimate()),
+        );
+        row(ui, "Model", &hint, |ui| {
+            egui::ComboBox::from_id_salt("local_model")
+                .width(CONTROL_WIDTH)
+                .selected_text(model_choice(current))
+                .show_ui(ui, |ui| {
+                    for m in &llm::CHAT_MODELS {
+                        ui.selectable_value(&mut self.settings.local_model, m.id.to_string(), model_choice(m));
+                    }
+                });
+        });
+    }
+
+    fn lemonade_rows(&mut self, ui: &mut egui::Ui) {
+        let models = self.shared().models.clone();
+        row(ui, "Lemonade model", "The model Lemonade uses for Summary, Explain and ELI5.", |ui| {
+            ui.horizontal(|ui| {
+                if ui.small_button("Refresh").on_hover_text("Ask Lemonade for its models").clicked() {
+                    self.refresh_models();
+                }
+                egui::ComboBox::from_id_salt("chat")
+                    .width(CONTROL_WIDTH - 40.0)
+                    .selected_text(self.settings.chat_model.clone())
+                    .show_ui(ui, |ui| {
+                        if !models.iter().any(|m| m.eq_ignore_ascii_case(&self.settings.chat_model)) {
+                            let current = self.settings.chat_model.clone();
+                            ui.selectable_value(&mut self.settings.chat_model, current.clone(), current);
+                        }
+                        for m in &models {
+                            ui.selectable_value(&mut self.settings.chat_model, m.clone(), m);
+                        }
+                    });
             });
         });
-        let note = self.shared().models_note.clone();
-        if !note.is_empty() {
-            ui.label(RichText::new(note).small().weak());
-        }
+        divider(ui);
+        row(ui, "Server address", "Where Lemonade listens.", |ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.settings.base_url).desired_width(CONTROL_WIDTH));
+        });
     }
 
     fn shortcuts_page(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
             self.hotkey_row(ui, "Speak selection", "Reads the highlighted text.", Recording::Speak);
             divider(ui);
-            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary and Explain.", Recording::Mode);
+            self.hotkey_row(ui, "Change mode", "Cycles Verbatim, Summary, Explain and ELI5.", Recording::Mode);
         });
         if !self.hotkey_error.is_empty() {
             ui.colored_label(ui.visuals().warn_fg_color, &self.hotkey_error);
@@ -742,6 +797,11 @@ fn nav_item(ui: &mut egui::Ui, page: Page, selected: bool) -> egui::Response {
     }
     ui.painter().text(rect.left_center() + Vec2::new(16.0, 0.0), egui::Align2::LEFT_CENTER, page.title(), font, color);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// "Qwen3 1.7B · 1.7 GB memory", for the model picker.
+fn model_choice(m: &llm::ChatModel) -> String {
+    format!("{}  ·  {} memory", m.title, llm::size_label(m.memory_estimate()))
 }
 
 fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
@@ -949,16 +1009,23 @@ mod tests {
         let ctx = egui::Context::default();
         apply_style(&ctx);
         let mut app = SettingsApp::new();
-        let expected: [(Page, &[&str]); 4] = [
+        let expected: [(Page, ChatBackend, &[&str]); 5] = [
             (
                 Page::Voice,
+                ChatBackend::Local,
                 &["Voice", "Speed", "Language", "TONE", "Warm", "Low", "High", "Output device", "Model folder"],
             ),
-            (Page::Modes, &["Speak mode", "Verbatim", "Explain", "Chat model", "Server address"]),
-            (Page::Shortcuts, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),
-            (Page::General, &["Start at login", "Stop sound", "Log file"]),
+            (
+                Page::Modes,
+                ChatBackend::Local,
+                &["Speak mode", "Verbatim", "Explain", "ELI5", "Chat model", "Built in", "Model"],
+            ),
+            (Page::Modes, ChatBackend::Lemonade, &["Chat model", "Lemonade model", "Server address"]),
+            (Page::Shortcuts, ChatBackend::Local, &["Speak selection", "Change mode", "Ctrl", "Shortcut stops speech"]),
+            (Page::General, ChatBackend::Local, &["Start at login", "Stop sound", "Log file"]),
         ];
-        for (page, wanted) in expected {
+        for (page, backend, wanted) in expected {
+            app.settings.chat_backend = backend;
             app.page = page;
             let mut texts = Vec::new();
             // Panels and grids size themselves on a first pass; the second frame is the real one.

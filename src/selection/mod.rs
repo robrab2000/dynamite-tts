@@ -3,10 +3,12 @@
 //! - Windows: a clean synthetic Ctrl+C (held modifiers lifted first), the clipboard read once
 //!   its sequence number changes, and the previous clipboard text or image put back afterwards.
 //! - macOS: the focused element's selected text through Accessibility (with its full value as
-//!   context for Explain), falling back to Cmd+C and the pasteboard.
+//!   context for Explain and ELI5), falling back to Cmd+C and the pasteboard.
 //! - Linux: the PRIMARY selection through wl-paste or xclip/xsel. No keys are sent and the
-//!   clipboard is never touched.
+//!   clipboard is never touched. For Explain and ELI5 the text around it comes from AT-SPI.
 
+#[cfg(target_os = "linux")]
+mod atspi;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -20,14 +22,15 @@ mod clipboard;
 #[derive(Debug, Default)]
 pub struct Capture {
     pub text: Option<String>,
-    /// Text around the selection (the whole field on macOS), for Explain.
+    /// Text around the selection (the whole field on macOS, the page section on Linux), for
+    /// Explain and ELI5.
     pub context: Option<String>,
 }
 
 /// Blocks for up to about a second. Call it off the UI thread.
 pub fn capture(include_context: bool) -> Capture {
     #[cfg(target_os = "linux")]
-    let capture = linux::capture();
+    let capture = linux::capture(include_context);
     #[cfg(target_os = "macos")]
     let capture = macos::capture(include_context);
     #[cfg(windows)]
@@ -44,6 +47,14 @@ pub fn missing_requirement() -> Option<String> {
     return macos::missing_permission();
     #[cfg(windows)]
     return None;
+}
+
+/// Gets ready to capture the text around the highlight, or stops. Linux: listens on the
+/// accessibility bus and turns on Chromium's and Electron's accessibility. No-op elsewhere.
+pub fn watch_context(enabled: bool) {
+    #[cfg(target_os = "linux")]
+    atspi::watch(enabled);
+    let _ = enabled;
 }
 
 /// Asks for whatever permission capture needs (macOS: Accessibility). No-op elsewhere.

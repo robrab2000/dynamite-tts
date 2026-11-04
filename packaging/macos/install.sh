@@ -2,18 +2,20 @@
 # Install Dynamite TTS on an Apple Silicon Mac from a release zip or a local build.
 # Install-Dynamite-TTS.command is the double-clickable front for this script.
 #
-#   ./install.sh [DynamiteTTS.app]    copy the app to ~/Applications, install Lemonade with its
-#                                     chat model, and open it
-#   ./install.sh --no-lemonade ...    skip Lemonade (Verbatim mode needs none)
+#   ./install.sh [DynamiteTTS.app]    copy the app to ~/Applications and open it
+#   ./install.sh --lemonade ...       also install AMD's Lemonade Server and its chat model.
+#                                     Optional: Summary and Explain use a built-in model unless
+#                                     you choose Lemonade in Settings → Modes.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-LEMONADE=1
+LEMONADE=0
 SOURCE=""
 for arg in "$@"; do
   case "$arg" in
-    --no-lemonade) LEMONADE=0 ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    --lemonade) LEMONADE=1 ;;
+    --no-lemonade) LEMONADE=0 ;; # now the default; still accepted
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     *) SOURCE="$arg" ;;
   esac
 done
@@ -43,7 +45,7 @@ echo "Installed ${DEST}"
 
 if [[ "${LEMONADE}" == "1" ]]; then
   echo
-  echo "== Lemonade (Summary and Explain) =="
+  echo "== Lemonade (optional; choose it in Settings → Modes) =="
   "${HERE}/install-lemonade.sh"
   LEMOND="${HOME}/Library/Application Support/DynamiteTTS/lemonade/lemond"
   CLI="${HOME}/Library/Application Support/DynamiteTTS/lemonade/lemonade"
@@ -64,4 +66,4 @@ echo
 echo "== Launch =="
 open "${DEST}"
 echo "Dynamite TTS is in the menu bar. Allow it under System Settings → Privacy & Security → Accessibility"
-echo "when asked, then highlight text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain."
+echo "when asked, then highlight text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."
