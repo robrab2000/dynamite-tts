@@ -4,7 +4,7 @@
 #   packaging/macos/package-app.sh            -> target/macos/DynamiteTTS.app
 #   packaging/macos/package-app.sh --zip      -> also target/macos/DynamiteTTS-macos-arm64-vX.Y.Z.zip
 #                                                (the app with the installer and its scripts) and the
-#                                                standalone target/macos/Install-Dynamite-TTS-vX.Y.Z.command
+#                                                standalone target/macos/Install-Dynamite-TTS-vX.Y.Z.command.zip
 #
 # CODESIGN_IDENTITY picks the signing identity (default: the first "Apple Development" one, else
 # ad hoc). DYNAMITE_BUNDLE_PHONON_MODEL=0 leaves the model out; the app then downloads it once.
@@ -67,8 +67,12 @@ if [[ "${1:-}" == "--zip" ]]; then
   chmod +x "${STAGE}/Install-Dynamite-TTS.command" "${STAGE}/"*.sh
   ditto -c -k --norsrc --keepParent "${STAGE}" "${ZIP}"
   echo "Wrote ${ZIP}"
-  # The same installer on its own: it downloads the zip above from the GitHub release.
+  # The same installer on its own: it downloads the zip above from the GitHub release. It is
+  # zipped because a bare download loses its execute bit; Archive Utility puts it back.
   INSTALLER="${OUT}/Install-Dynamite-TTS-v${VERSION}.command"
   cp "${STAGE}/Install-Dynamite-TTS.command" "${INSTALLER}"
-  echo "Wrote ${INSTALLER}"
+  rm -f "${INSTALLER}.zip"
+  (cd "${OUT}" && ditto -c -k --norsrc "Install-Dynamite-TTS-v${VERSION}.command" "${INSTALLER}.zip")
+  rm -f "${INSTALLER}"
+  echo "Wrote ${INSTALLER}.zip"
 fi

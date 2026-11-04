@@ -56,7 +56,7 @@ jobs:
           name: macos
           path: |
             target/macos/DynamiteTTS-macos-arm64-v*.zip
-            target/macos/Install-Dynamite-TTS-v*.command
+            target/macos/Install-Dynamite-TTS-v*.command.zip
 
   linux:
     # The oldest supported runner, so the binary runs on any newer glibc.
@@ -103,7 +103,7 @@ jobs:
 
           ## Install
           - **Windows 10/11 (64-bit):** run \`DynamiteTts-Setup-${tag}.exe\` (portable: the \`win-x64\` zip).
-          - **macOS 14+ (Apple Silicon):** download \`Install-Dynamite-TTS-${tag}.command\` and double-click it; it fetches the app zip and installs it. If macOS refuses to open it, click Open Anyway under Privacy & Security, or run it in Terminal with \`bash\`. Allow the app under Privacy & Security → Accessibility. (\`DynamiteTTS-macos-arm64-${tag}.zip\` has the app and the same installer.)
+          - **macOS 14+ (Apple Silicon):** download \`Install-Dynamite-TTS-${tag}.command.zip\`, unzip it if your browser hasn't, and double-click the \`.command\` file; it fetches the app and installs it. If macOS refuses to open it, click Open Anyway under Privacy & Security, or run it in Terminal with \`bash\`. Allow the app under Privacy & Security → Accessibility. (\`DynamiteTTS-macos-arm64-${tag}.zip\` has the app and the same installer.)
           - **Linux (Ubuntu 22.04+):** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.
 
           Builds are not code-signed yet, so SmartScreen and Gatekeeper may ask you to confirm the first launch. x86-64 builds need an AVX2 CPU. The Phonon English model is bundled, so Verbatim speech works offline; Summary and Explain need a local [Lemonade Server](https://lemonade-server.ai). See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/README.md) for details.

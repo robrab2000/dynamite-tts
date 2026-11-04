@@ -43,8 +43,8 @@ It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator 
 
 ### macOS 14+ on Apple Silicon
 
-1. Download **`Install-Dynamite-TTS-v….command`** and double-click it. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return.
-2. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or run it from Terminal instead:
+1. Download **`Install-Dynamite-TTS-v….command.zip`**. Safari unzips it for you; otherwise double-click the zip. Then double-click **`Install-Dynamite-TTS-v….command`**. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return.
+2. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or run it from Terminal instead (this also works if the file has lost its execute permission):
    ```bash
    bash ~/Downloads/Install-Dynamite-TTS-v*.command
    ```
