@@ -260,7 +260,7 @@ impl App {
                         self.speaking_mode = mode;
                         let context = match mode {
                             SpeakMode::Explain if text::is_short_selection(&text) => {
-                                text::normalize_context(&text, capture.context.as_deref())
+                                text::surrounding_paragraphs(&text, capture.context.as_deref())
                             }
                             SpeakMode::Eli5 => text::surrounding_paragraphs(&text, capture.context.as_deref()),
                             _ => None,
@@ -360,6 +360,7 @@ impl App {
         if let Some(t) = &self.tray {
             t.set_mode(mode);
         }
+        selection::watch_context(mode.uses_context());
         log!("speak mode -> {}", mode.as_str());
         self.notice(&format!("Mode: {}", mode.title()));
     }
@@ -375,6 +376,7 @@ impl App {
                 log!("launch at login failed: {e}");
             }
         }
+        selection::watch_context(self.settings.speak_mode.uses_context());
         let s = &self.settings;
         self.speech.set_eq(s.eq_low_db, s.eq_mid_db, s.eq_high_db);
         self.bind_hotkeys();
@@ -574,6 +576,7 @@ impl App {
     fn quit(&mut self, flow: &mut ControlFlow) {
         log!("quit");
         self.speech.stop(false, &self.settings);
+        selection::watch_context(false);
         if let Some(s) = self.status.as_mut() {
             s.hide();
         }
