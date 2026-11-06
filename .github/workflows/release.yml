@@ -107,7 +107,7 @@ jobs:
           - **macOS 14+ (Apple Silicon):** download \`Install-Dynamite-TTS-macOS-${tag}.zip\` and open it. Double-click **Install-Dynamite-TTS.command** inside; it downloads the app and installs it. The **README.txt** next to it walks through each step.
             - If macOS won't open the installer, go to System Settings → Privacy & Security, click **Open Anyway**, and double-click it again.
             - Or open Terminal, type \`bash \` (with a space), drag the installer into the window, and press Return.
-            - When the app opens, allow it under System Settings → Privacy & Security → Accessibility.
+            - When the app opens, allow it under System Settings → Privacy & Security → Device Control and Data Access (macOS 27 and later; Accessibility on earlier versions).
             - \`Install-Dynamite-TTS-${tag}.command\` is the same installer as a single file. Browsers drop its execute bit, so run it from Terminal: type \`bash \` (with a space), drag it into the window, and press Return.
             - \`DynamiteTTS-macos-arm64-${tag}.zip\` has the app itself with the same installer, for installing offline.
           - **Linux (Ubuntu 22.04+):** unpack \`DynamiteTts-linux-x64-${tag}.tar.gz\` and run \`./install.sh\`.

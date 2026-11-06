@@ -2,7 +2,7 @@
 ; Built by packaging\windows\build.ps1 (pass /DMyAppVersion=x.y.z)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.0"
+  #define MyAppVersion "0.3.1"
 #endif
 
 #define MyAppName "Dynamite TTS"

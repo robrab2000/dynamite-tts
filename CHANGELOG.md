@@ -2,6 +2,20 @@
 
 The release workflow publishes the section for each tag as that release's notes.
 
+## v0.3.1
+
+On macOS 27 the highlight permission is easier to find, and a missing permission no longer looks like an empty selection.
+
+### Fixed
+
+- **The macOS 27 permission has its new name.** System Settings renamed Accessibility to Device Control and Data Access. The installer and the menu-bar notice use that name. Earlier macOS versions still say Accessibility.
+- **A missing permission says so.** If Dynamite TTS is not allowed to read the highlight, the hotkey tells you where to allow it, instead of saying "No text selected".
+
+### Upgrading
+
+- macOS: run the new installer. It replaces the app in ~/Applications. A new build is signed differently, so allow Dynamite TTS again under Privacy & Security → Device Control and Data Access if speaking says the permission is missing.
+- Windows and Linux: install over 0.3.0. Nothing else changes.
+
 ## v0.3.0
 
 Summary and Explain no longer need anything installed, and a new ELI5 mode explains a highlight in the simplest terms.
