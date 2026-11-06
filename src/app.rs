@@ -256,7 +256,12 @@ impl App {
                     None if self.speech.is_busy() => self.stop(true),
                     None => {
                         self.show_phase(None);
-                        self.notice("No text selected");
+                        if let Some(missing) = selection::missing_requirement() {
+                            selection::request_permission();
+                            self.notice(&missing);
+                        } else {
+                            self.notice("No text selected");
+                        }
                     }
                     Some(text) => {
                         let mode = self.settings.speak_mode;

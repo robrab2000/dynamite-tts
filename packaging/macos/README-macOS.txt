@@ -28,9 +28,10 @@ INSTALL
      you can pick in Settings > Modes.
 
 4. Dynamite TTS opens in the menu bar. When macOS asks, allow it under
-   System Settings > Privacy & Security > Accessibility. It needs this
-   to read the text you highlight. Then quit and reopen it from the
-   menu bar icon.
+   System Settings > Privacy & Security > Device Control and Data Access
+   (macOS 27 and later; on earlier versions that list is named
+   Accessibility). It needs this to read the text you highlight. Then
+   quit and reopen it from the menu bar icon.
 
 
 IF DOUBLE-CLICK DOESN'T WORK

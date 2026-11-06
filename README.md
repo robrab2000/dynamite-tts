@@ -49,7 +49,7 @@ It installs to `%LocalAppData%\Programs\DynamiteTTS` and needs no administrator 
 2. Double-click **Install-Dynamite-TTS.command** in the folder. Terminal opens, downloads the app, and shows each step; the window stays open until you press Return. The **README.txt** next to it has these steps too.
 3. If macOS refuses to open it because the download isn't notarized, go to **System Settings → Privacy & Security**, click **Open Anyway**, and double-click it again. Or open Terminal, type `bash ` with a space, drag the installer into the window, and press Return.
 4. Answer **n** when it offers Lemonade Server, unless you want it for an AMD NPU. Summary and Explain work without it.
-5. When the app opens, allow it under **System Settings → Privacy & Security → Accessibility**. It needs this to read the highlighted text.
+5. When the app opens, allow it under **System Settings → Privacy & Security → Device Control and Data Access** (macOS 27 and later; on earlier versions the same list is named **Accessibility**). It needs this to read the highlighted text.
 
 The installer copies the app to `~/Applications`, so it needs no administrator password. **`DynamiteTTS-macos-arm64-v….zip`** has the app itself with the same installer and README, for an offline install or to do it by hand: drag **DynamiteTTS.app** to Applications, open it with right-click → **Open**, and, only if you want Lemonade, run `install-lemonade.sh` from the zip.
 
@@ -141,7 +141,7 @@ Nothing you highlight is sent over the network or written to disk. The only down
 ## Troubleshooting
 
 - **Nothing happens when I press the shortcut.** Another app may own the same keys; Dynamite says so when it starts. Pick another shortcut in Settings → Shortcuts. On Linux outside GNOME, bind `dynamite-tts speak` in your desktop's keyboard settings.
-- **"No text selected" on macOS.** Allow Dynamite TTS under System Settings → Privacy & Security → Accessibility, then quit and reopen it.
+- **"No text selected" on macOS.** Allow Dynamite TTS under System Settings → Privacy & Security → Device Control and Data Access (macOS 27 and later; **Accessibility** on earlier versions), then quit and reopen it.
 - **"No text selected" on Linux.** Install `wl-clipboard` (Wayland) or `xclip` (X11).
 - **Summary, Explain or ELI5 is slow or fails with "Not enough memory".** Choose the Qwen3 0.6B model in Settings → Modes. The first request after starting the app also loads the model, which takes a few seconds.
 - **Summary, Explain or ELI5 says Lemonade isn't running.** This only applies when Settings → Modes → Chat model is set to Lemonade. Switch it to Built in, or install Lemonade (Windows: `winget install AMD.LemonadeServer`; macOS and Linux: the `install-lemonade.sh` scripts). Dynamite starts it when needed.

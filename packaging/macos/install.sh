@@ -65,5 +65,9 @@ fi
 echo
 echo "== Launch =="
 open "${DEST}"
-echo "Dynamite TTS is in the menu bar. Allow it under System Settings → Privacy & Security → Accessibility"
+PRIVACY="Accessibility"
+if [[ "$(sw_vers -productVersion | cut -d. -f1)" -ge 27 ]]; then
+  PRIVACY="Device Control and Data Access"
+fi
+echo "Dynamite TTS is in the menu bar. Allow it under System Settings → Privacy & Security → ${PRIVACY}"
 echo "when asked, then highlight text and press Ctrl+Shift+S. Ctrl+Shift+M cycles Verbatim, Summary, Explain, ELI5."

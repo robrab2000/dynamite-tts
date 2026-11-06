@@ -24,7 +24,7 @@ pub fn is_trusted() -> bool {
     unsafe { AXIsProcessTrusted() != 0 }
 }
 
-/// Shows the system prompt that sends the user to Privacy & Security → Accessibility.
+/// Shows the system prompt that sends the user to the privacy list for this permission.
 pub fn request_permission() {
     let key = CFString::from_static_string("AXTrustedCheckOptionPrompt");
     let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), CFBoolean::true_value().as_CFType())]);
@@ -33,8 +33,26 @@ pub fn request_permission() {
 }
 
 pub fn missing_permission() -> Option<String> {
-    (!is_trusted())
-        .then(|| "Allow Dynamite TTS under Privacy & Security → Accessibility so it can read the highlight".into())
+    (!is_trusted()).then(|| {
+        format!("Allow Dynamite TTS under Privacy & Security → {} so it can read the highlight", permission_pane())
+    })
+}
+
+/// macOS 27 renamed this list. The setting is the same one.
+fn permission_pane() -> &'static str {
+    if macos_major() >= 27 { "Device Control and Data Access" } else { "Accessibility" }
+}
+
+fn macos_major() -> u32 {
+    let Ok(text) = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist") else {
+        return 0;
+    };
+    let Some(start) = text.find("<key>ProductVersion</key>") else { return 0 };
+    let rest = &text[start..];
+    let Some(open) = rest.find("<string>") else { return 0 };
+    let rest = &rest[open + "<string>".len()..];
+    let Some(end) = rest.find("</string>") else { return 0 };
+    rest[..end].split('.').next().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
 /// Copies an attribute; the caller releases the result.
@@ -92,6 +110,12 @@ fn post_command_c() {
 }
 
 pub fn capture(include_context: bool) -> Capture {
+    // Synthetic Cmd+C is dropped for an untrusted app, so the clipboard wait would only
+    // burn ~800ms and look like an empty selection.
+    if !is_trusted() {
+        crate::log!("capture skipped: accessibility not granted");
+        return Capture::default();
+    }
     if let Some((text, context)) = accessibility_selection(include_context) {
         return Capture { text: Some(text), context };
     }
