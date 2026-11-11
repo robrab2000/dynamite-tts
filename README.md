@@ -141,7 +141,7 @@ Send one UTF-8 line ending in a newline, read one line back, and close. Lines ar
 
 | Command | Does | Reply |
 |---|---|---|
-| `speak-text <text>` | Reads the text, replacing anything already playing. The text is always read word for word, whatever the speak mode: Summary, Explain and ELI5 only apply to the highlight. Markdown is stripped first. Put newlines in the text as spaces. | `ok` as soon as it starts, or `error: <reason>`, for example when nothing is left to read once the Markdown is stripped |
+| `speak-text <text>` | Reads the text, replacing anything already playing. The text is always read word for word, whatever the speak mode: Summary, Explain and ELI5 only apply to the highlight. Markdown is stripped first. Put newlines in the text as spaces. | `ok` as soon as it starts, `error: <reason>`, for example when nothing is left to read once the Markdown is stripped, or `timeout` when the app was busy; the text may still be read |
 | `stop` | Stops speaking. | `ok` |
 | `ping` | Reports the state. | `ok phase=<phase> mode=<mode> settings=<open\|closed>`, where the phase is `Ready` when nothing is playing |
 

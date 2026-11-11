@@ -82,11 +82,12 @@ fn run(args: Vec<String>) -> i32 {
                 return 2;
             }
             if let Some(reply) = control::send(&format!("speak-text {text}")) {
-                if reply.starts_with("ok") {
-                    return 0;
+                // `timeout` means the app was busy; the text is still queued, so it isn't a failure.
+                if reply.starts_with("error:") {
+                    eprintln!("{reply}");
+                    return 1;
                 }
-                eprintln!("{reply}");
-                return 1;
+                return 0;
             }
             return start(app::Initial::SpeakText(text));
         }
