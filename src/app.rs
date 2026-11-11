@@ -137,7 +137,9 @@ pub fn run(initial: Initial, _lock: control::InstanceLock) -> ! {
                     Some(Initial::Command(c)) => {
                         app.handle_command(&c);
                     }
-                    Some(Initial::SpeakText(t)) => app.speak_text(&t),
+                    Some(Initial::SpeakText(t)) => {
+                        app.speak_text(&t);
+                    }
                     _ => {}
                 }
             }
@@ -308,7 +310,9 @@ impl App {
             }
             other => {
                 if let Some(text) = other.strip_prefix("speak-text ") {
-                    self.speak_text(text);
+                    if let Some(notice) = self.speak_text(text) {
+                        return format!("error: {notice}");
+                    }
                 } else if let Some(gains) = other.strip_prefix("set-eq ") {
                     // Live from Settings while a slider moves; the saved settings follow on reload.
                     let g: Vec<f32> = gains.split_whitespace().filter_map(|v| v.parse().ok()).collect();
@@ -322,12 +326,16 @@ impl App {
         "ok".into()
     }
 
-    fn speak_text(&mut self, text: &str) {
+    /// Always verbatim, whatever the speak mode: other apps send text they have already written
+    /// to be read as is (see "From other apps" in the README). The notice when nothing was read.
+    fn speak_text(&mut self, text: &str) -> Option<String> {
         self.speaking_mode = SpeakMode::Verbatim;
-        if let Some(n) = self.speech.speak(text, None, &self.settings, SpeakMode::Verbatim) {
-            self.notice(&n);
+        let notice = self.speech.speak(text, None, &self.settings, SpeakMode::Verbatim);
+        if let Some(n) = &notice {
+            self.notice(n);
         }
         self.show_phase(self.speech.phase().map(str::to_string).as_deref());
+        notice
     }
 
     fn speak_selection(&mut self) {

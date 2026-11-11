@@ -81,8 +81,12 @@ fn run(args: Vec<String>) -> i32 {
                 eprintln!("usage: dynamite-tts --speak TEXT");
                 return 2;
             }
-            if control::send(&format!("speak-text {text}")).is_some() {
-                return 0;
+            if let Some(reply) = control::send(&format!("speak-text {text}")) {
+                if reply.starts_with("ok") {
+                    return 0;
+                }
+                eprintln!("{reply}");
+                return 1;
             }
             return start(app::Initial::SpeakText(text));
         }
