@@ -12,6 +12,9 @@ jobs:
       matrix:
         os: [windows-latest, macos-15, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
+    env:
+      # The release target, so CI catches what building for an older macOS than the SDK breaks.
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v4
 
