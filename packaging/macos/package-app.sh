@@ -16,6 +16,8 @@ OUT="${ROOT}/target/macos"
 APP="${OUT}/DynamiteTTS.app"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "${ROOT}/Cargo.toml" | head -n 1)"
 export PATH="${PATH}:${HOME}/.cargo/bin:/opt/homebrew/bin"
+# Match LSMinimumSystemVersion in Info.plist, whichever macOS builds it.
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 
 choose_identity() {
   if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
