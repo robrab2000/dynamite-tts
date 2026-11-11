@@ -36,7 +36,10 @@ jobs:
             target/windows/DynamiteTts-Setup-v*.exe
 
   macos:
-    runs-on: macos-14
+    runs-on: macos-15
+    env:
+      # Built on macOS 15, but still for macOS 14 (the Info.plist minimum).
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
