@@ -2,12 +2,18 @@
 
 The release workflow publishes the section for each tag as that release's notes.
 
-## v0.3.1
+## v0.3.2
 
-On macOS 27 the highlight permission is easier to find, and a missing permission no longer looks like an empty selection.
+Other apps can have Dynamite TTS read their text, snake_case names are read as words, and on macOS 27 the highlight permission is easier to find. This release also carries the 0.3.1 fixes, which were never published.
+
+### New
+
+- **Reading text from other apps.** The README's "From other apps" section describes the control socket: where it is on each platform, and the `speak-text`, `stop` and `ping` commands. `speak-text` is always read word for word, whatever the speak mode.
 
 ### Fixed
 
+- **snake_case names are read as words.** `user_id` is read as "user id" instead of "userid", in Verbatim and in the text sent to Summary and Explain.
+- **`speak-text` says when it reads nothing.** It replies `error: <reason>` instead of `ok` when nothing is left once the Markdown is stripped, and `dynamite-tts --speak` then exits 1.
 - **The macOS 27 permission has its new name.** System Settings renamed Accessibility to Device Control and Data Access. The installer and the menu-bar notice use that name. Earlier macOS versions still say Accessibility.
 - **A missing permission says so.** If Dynamite TTS is not allowed to read the highlight, the hotkey tells you where to allow it, instead of saying "No text selected".
 
