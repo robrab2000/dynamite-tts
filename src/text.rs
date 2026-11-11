@@ -13,6 +13,7 @@ static HEADER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*#{1,6}
 static BULLET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^[ \t]*[-*+•][ \t]+").unwrap());
 // The regex crate has no backreferences, so each emphasis marker is its own alternative.
 static EMPHASIS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\*\*(.*?)\*\*|__(.*?)__|\*(.*?)\*|_(.*?)_").unwrap());
+static WORD_UNDERSCORE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([\p{L}\p{N}])_([\p{L}\p{N}])").unwrap());
 static SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t]+").unwrap());
 static BLANKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n{3,}").unwrap());
 
@@ -33,6 +34,10 @@ pub fn sanitize(text: &str) -> String {
     let text = URL.replace_all(&text, |c: &Captures| format!("link to {}", host_name(&c[0])));
     let text = FENCE.replace_all(&text, "");
     let text = text.replace("```", "").replace('`', "");
+    // An underscore inside a word (snake_case) is not emphasis, and reads best as a space. The
+    // second pass catches the ones the first skips in a_b_c, where the matches would overlap.
+    let text = WORD_UNDERSCORE.replace_all(&text, "$1 $2");
+    let text = WORD_UNDERSCORE.replace_all(&text, "$1 $2");
     let text = HEADER.replace_all(&text, "");
     let text = BULLET.replace_all(&text, "");
     let text = EMPHASIS
@@ -327,6 +332,13 @@ mod tests {
         assert_eq!(sanitize("# Title\n\n- **bold** and _it_\n* `code`"), "Title\n\nbold and it\ncode");
         assert_eq!(sanitize("```rust\nlet x = 1;\n```"), "let x = 1;");
         assert_eq!(sanitize("see [the docs](https://example.com/a)"), "see the docs");
+    }
+
+    #[test]
+    fn reads_snake_case_as_words() {
+        assert_eq!(sanitize("renamed `user_id` to `account_id`"), "renamed user id to account id");
+        assert_eq!(sanitize("a_b_c and x_1"), "a b c and x 1");
+        assert_eq!(sanitize("_it_ and __init__"), "it and init");
     }
 
     #[test]
