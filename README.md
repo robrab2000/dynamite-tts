@@ -128,6 +128,25 @@ dynamite-tts stop | settings | ping | quit
 dynamite-tts --speak "Hello" # read some text
 ```
 
+### From other apps
+
+Another app can make Dynamite TTS read its text by connecting to the control socket the command line uses. It belongs to the current user only.
+
+| | Socket |
+|---|---|
+| Windows | the named pipe `\\.\pipe\dynamite-tts-<USERNAME>`, with any character in the user name other than letters, digits, `-` and `_` left out |
+| macOS and Linux | `$XDG_RUNTIME_DIR/dynamite-tts.sock`, or `/tmp/dynamite-tts-<uid>/dynamite-tts.sock` when that isn't set |
+
+Send one UTF-8 line ending in a newline, read one line back, and close. Lines are limited to 256 KB.
+
+| Command | Does | Reply |
+|---|---|---|
+| `speak-text <text>` | Reads the text, replacing anything already playing. The text is always read word for word, whatever the speak mode: Summary, Explain and ELI5 only apply to the highlight. Markdown is stripped first. Put newlines in the text as spaces. | `ok` as soon as it starts, `error: <reason>`, for example when nothing is left to read once the Markdown is stripped, or `timeout` when the app was busy; the text may still be read |
+| `stop` | Stops speaking. | `ok` |
+| `ping` | Reports the state. | `ok phase=<phase> mode=<mode> settings=<open\|closed>`, where the phase is `Ready` when nothing is playing |
+
+If nothing is listening, the app isn't running; `dynamite-tts --speak "<text>"` starts it and then reads the text.
+
 ## Files and privacy
 
 | | Windows | macOS | Linux |

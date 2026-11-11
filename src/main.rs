@@ -81,7 +81,12 @@ fn run(args: Vec<String>) -> i32 {
                 eprintln!("usage: dynamite-tts --speak TEXT");
                 return 2;
             }
-            if control::send(&format!("speak-text {text}")).is_some() {
+            if let Some(reply) = control::send(&format!("speak-text {text}")) {
+                // `timeout` means the app was busy; the text is still queued, so it isn't a failure.
+                if reply.starts_with("error:") {
+                    eprintln!("{reply}");
+                    return 1;
+                }
                 return 0;
             }
             return start(app::Initial::SpeakText(text));
